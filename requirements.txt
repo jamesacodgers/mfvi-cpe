@@ -1,0 +1,11 @@
+torch
+numpy
+scipy
+matplotlib
+seaborn
+tqdm
+scikit-learn
+jupyter
+wandb
+pandas
+ivon-opt
