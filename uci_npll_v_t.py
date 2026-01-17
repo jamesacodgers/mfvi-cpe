@@ -1,0 +1,107 @@
+# this script creates plots of the NPLL as a function of posterior temperature
+# for various UCI data sets
+import os
+from uci_data import load_dataset
+import torch
+from math import log 
+import matplotlib.pyplot as plt
+
+
+from uci_tr_inequ import mfvi_post_analytic, full_cov_post, post_pred_mean_var
+
+dtype = torch.float64
+
+O_NOISE = .1
+P_PRSCISN = 1
+TR_FRC = 0.7
+
+def npll(X, y, Ts):
+
+    # calculate NPLL
+    # Note: we return the mean to make numbers comparable acorss data set size
+
+    n, d = X.shape
+
+    # via expectation under true input distribution
+
+    # pre-process
+    tt_split_ind = int(TR_FRC * n)
+    perm = torch.randperm(n)
+    X = X[perm]
+    X_tr = X[:tt_split_ind]
+    X_te = X[tt_split_ind:]
+    y = y[perm]
+    y_tr = y[:tt_split_ind]
+    y_te = y[tt_split_ind:]
+    m_X_tr = X_tr.mean(0)
+    std_X_tr = X_tr.std(0)
+    m_y_tr = y_tr.mean()
+    X_tr = (X_tr - m_X_tr) / (std_X_tr + 1e-12)
+    X_te = (X_te - m_X_tr) / (std_X_tr + 1e-12)
+    y_tr -= m_y_tr
+    y_te -= m_y_tr
+
+    mu, Sigma = full_cov_post(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+
+    m_opt, S_opt = mfvi_post_analytic(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+
+    true_post_mean, true_post_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
+                                                       obs_noise=O_NOISE)
+    
+    mfvi_post_mean, mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=S_opt, 
+                                                       obs_noise=O_NOISE, temp=Ts)
+    
+    true_npll = log(2*torch.pi) / 2 + \
+                    torch.log(true_post_var) / 2 + \
+                    (y_te - true_post_mean)[:, None]**2 / true_post_var / 2
+    mfvi_nplls = log(2*torch.pi) / 2 + \
+                    torch.log(mfvi_post_var) / 2 + \
+                    (y_te - mfvi_post_mean)[:, None]**2 / mfvi_post_var / 2
+
+    return torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0)
+    
+datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
+
+
+
+if __name__ == "__main__":
+    Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype) 
+    log10Ts = torch.log10(Ts)
+
+    fig, axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
+    axes = axes.ravel()
+
+    for ax, dataset in zip(axes, datasets):
+        X_df, y_df = load_dataset(dataset)
+
+        X = torch.tensor(X_df.values, dtype=dtype)
+        y = torch.tensor(y_df.values.squeeze(), dtype=dtype)
+
+        true_npll, mfvi_nplls = npll(X, y, Ts[:, None])  
+        true_npll = true_npll.numpy()
+        mfvi_nplls = mfvi_nplls.numpy()
+
+        # MFVI curve
+        ax.plot(log10Ts, mfvi_nplls, label="MFVI")
+
+        # True posterior horizontal line (constant across temperatures)
+        ax.axhline(true_npll, linestyle="--", label="True posterior")
+
+        ax.set_title(dataset)
+        ax.set_xlabel(r"$\log_{10}(T)$")
+        ax.set_ylabel("Mean Test NLL")
+
+        ax.grid(True, alpha=0.3)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels,
+            loc="outside lower center",
+            ncol=2,
+            frameon=False)
+
+    outpath = "figs/uci/uci_lin_npll.pdf"
+    os.makedirs("figs/uci/", exist_ok=True)
+    fig.savefig(outpath, bbox_inches="tight")
+    
+    print(f"Saved figure to {outpath}")
+

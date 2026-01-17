@@ -1,0 +1,20 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+Dataset & n & d & avg\_mfvi\_post\_var & avg\_true\_post\_var & trace\_S\_opt & trace\_Sigma \\
+\midrule
+boston & 506 & 13 & 0.00040963 & 0.00044932 & 0.00025742 & 0.00089338 \\
+energy & 768 & 9 & 0.00016189 & 0.00014689 & 0.00011734 & 1.0035 \\
+concrete & 1030 & 8 & 0.00011006 & 0.00010649 & 7.7745e-05 & 0.00042853 \\
+yacht & 308 & 6 & 0.00027502 & 0.0002699 & 0.00019543 & 0.0044649 \\
+wine & 178 & 13 & 0.0010196 & 0.0011409 & 0.00073442 & 0.0021057 \\
+protein & 45730 & 9 & 2.7852e-06 & 2.7656e-06 & 1.9681e-06 & 0.00018298 \\
+kin8nm & 8192 & 8 & 1.4026e-05 & 1.4043e-05 & 9.7668e-06 & 9.7753e-06 \\
+power & 9568 & 4 & 5.9387e-06 & 5.8895e-06 & 4.181e-06 & 1.367e-05 \\
+naval & 11934 & 17 & 1.7945e-05 & 1.6838e-05 & 1.8095 & 2.9822 \\
+\bottomrule
+\end{tabular}
+\caption{Results across datasets.}
+\label{tab:results}
+\end{table}

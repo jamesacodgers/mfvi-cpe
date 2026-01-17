@@ -1,5 +1,8 @@
-from ucimlrepo import fetch_ucirepo
-from UCI_data import load_dataset
+# This script creates a LaTex table allowing us to verify the trace ineqality 
+# in Thm 4.5 on various UCI data sets (loading ta)
+
+import os
+from uci_data import load_dataset
 import torch
 dtype = torch.float64
 
@@ -34,15 +37,17 @@ def mfvi_post_analytic(train_X, train_y, obs_noise, prior_prscisn):
     return mu, Sigma
 
 
-def post_pred_mean_var(test_X, post_mean, post_cov, obs_noise = None):
+def post_pred_mean_var(test_X, post_mean, post_cov, obs_noise = None, temp = torch.ones((1,1), dtype=dtype)):
     
     # given (estimates of) the posterior parameters, 
     # compute the posterior predictive mean and variance
+    # optional: temper the posterior with array shape (n_temps, 1)
 
     mean = test_X @ post_mean
     var = test_X.unsqueeze(1) @ post_cov.unsqueeze(0) @ test_X.unsqueeze(1).swapaxes(1,2) 
+    t_var = var.squeeze(1) @ temp.T # (n, n_temps)
 
-    return (mean, var.flatten()) if obs_noise is None else (mean, var.flatten() + obs_noise**2)
+    return (mean, t_var) if obs_noise is None else (mean, t_var + obs_noise**2)
 
 def tr_exp(X, y):
 
@@ -119,29 +124,37 @@ if __name__ == "__main__":
             "trace_Sigma": float(trace_Sigma.item()),
         })
 
-    # print LaTeX table 
     cols = ["n", "d", "avg_mfvi_post_var", "avg_true_post_var", "trace_S_opt", "trace_Sigma"]
 
-    print(r"\begin{table}[t]")
-    print(r"\centering")
-    print(r"\begin{tabular}{l" + "r" * len(cols) + r"}")
-    print(r"\toprule")
-    print("Dataset & " + " & ".join([c.replace("_", r"\_") for c in cols]) + r" \\")
-    print(r"\midrule")
+    os.makedirs("figs/uci/", exist_ok=True)
+    output_path = "figs/uci/tr_inequ_table.txt"
+    with open(output_path, "w") as f:
+        print(r"\begin{table}[t]", file=f)
+        print(r"\centering", file=f)
+        print(r"\begin{tabular}{l" + "r" * len(cols) + r"}", file=f)
+        print(r"\toprule", file=f)
+        print(
+            "Dataset & " + " & ".join([c.replace("_", r"\_") for c in cols]) + r" \\",
+            file=f
+        )
+        print(r"\midrule", file=f)
 
-    for row in results:
-        line = [row["dataset"]]
-        for c in cols:
-            v = row[c]
-            if c in ("n", "d"):
-                line.append(str(v))
-            else:
-                line.append(_fmt(v, sig=5))
-        print(" & ".join(line) + r" \\")
+        for row in results:
+            line = [row["dataset"]]
+            for c in cols:
+                v = row[c]
+                if c in ("n", "d"):
+                    line.append(str(v))
+                else:
+                    line.append(_fmt(v, sig=5))
+            print(" & ".join(line) + r" \\", file=f)
 
-    print(r"\bottomrule")
-    print(r"\end{tabular}")
-    print(r"\caption{Results across datasets.}")
-    print(r"\label{tab:results}")
-    print(r"\end{table}")
+        print(r"\bottomrule", file=f)
+        print(r"\end{tabular}", file=f)
+        print(r"\caption{Results across datasets.}", file=f)
+        print(r"\label{tab:results}", file=f)
+        print(r"\end{table}", file=f)
+
+    print(f"Wrote LaTeX table to {output_path}")
+
 
