@@ -5,34 +5,51 @@ from torch.distributions import Normal
 # Set default dtype to float64 for numerical stability
 torch.set_default_dtype(torch.float64)
 
-def compute_mfvi_analytic(X: torch.Tensor, y: torch.Tensor, temperature: float = 1.0, 
+
+def post_pred_mean_var(test_X, post_mean, post_cov, noise_std = None, temp = torch.ones((1,1))):
+    
+    # given (estimates of) the posterior parameters, 
+    # compute the posterior predictive mean and variance
+    # optional: temper the posterior with array shape (n_temps, 1)
+
+    mean = test_X @ post_mean
+    var = test_X.unsqueeze(1) @ post_cov.unsqueeze(0) @ test_X.unsqueeze(1).swapaxes(1,2) 
+    t_var = var.squeeze(1) @ temp.T # (n, n_temps)
+
+    return (mean, t_var) if noise_std is None else (mean, t_var + noise_std**2)
+
+def compute_mfvi_analytic(train_X: torch.Tensor, train_y: torch.Tensor, temperature: float = 1.0, prior_precision = 1.0,
                           noise_std: float = 1.0):
     """
     Compute closed-form mean-field VI solution for Cold Posterior Bayesian linear regression.
     Both likelihood and prior are scaled by 1/T.
     """
-    XTX = X.T @ X
-    XTy = X.T @ y
+    XTX = train_X.T @ train_X
+    XTy = train_X.T @ train_y
     
     # Posterior precision (Cold: 1/T * (Likelihood Precision + Prior Precision))
     # Total precision = 1/T * (X^T X / sigma^2 + I)
-    precision = (XTX / (noise_std**2) + torch.eye(X.shape[1])) / temperature
+    precision = (XTX / (noise_std**2) + prior_precision*torch.eye(train_X.shape[1])) / temperature
     
     # Posterior mean (Independent of T)
     mu = torch.linalg.solve(precision, XTy / (temperature * noise_std**2))
     
     # Posterior variances (diagonal only for mean-field)
     XTX_diag = torch.diag(XTX)
-    sigma_sq = (temperature * noise_std**2) / (XTX_diag + noise_std**2)
+    sigma_sq = (temperature * noise_std**2) / (XTX_diag + prior_precision*noise_std**2)
     return mu, sigma_sq
 
-def compute_exact_posterior(X: torch.Tensor, y: torch.Tensor, noise_std: float = 1.0):
-    """Compute the exact analytical posterior (not tempered)."""
-    precision_lik = X.T @ X / (noise_std ** 2)
-    precision_post = precision_lik + torch.eye(X.shape[1])
-    Sigma_post = torch.inverse(precision_post)
-    mu_post = Sigma_post @ (X.T @ y / (noise_std ** 2))
-    return mu_post, Sigma_post
+def compute_exact_posterior(train_X, train_y, noise_std, prior_precision):
+
+    # Mean and covariance of true posterior under a Normal-Normal linear model 
+
+    n, d = train_X.shape
+    Precision_matrix = train_X.T @ train_X / noise_std**2 + prior_precision * torch.eye(d)
+    Sigma = torch.linalg.inv(Precision_matrix)
+
+    mu = Sigma @ train_X.T @ train_y / noise_std**2
+
+    return mu, Sigma
 
 def test_nll_mfvi(X_test: torch.Tensor, y_test: torch.Tensor, 
                   mu: torch.Tensor, sigma: torch.Tensor,
@@ -74,20 +91,6 @@ def generate_data(n_samples: int = 100, n_dims: int = 10, input_std: float = 1.0
     y = X @ true_weights + torch.randn(n_samples) * noise_std
     return X, y, true_weights
 
-def generate_test_data(true_weights: torch.Tensor, n_samples: int = 100, 
-                       input_std: float = 1.0, noise_std: float = 1.0, 
-                       seed: int = 123, diagonal_input: bool = True):
-    """Generate test data consistent with training data structure."""
-    torch.manual_seed(seed)
-    n_dims = len(true_weights)
-    if diagonal_input:
-        x1 = torch.randn(n_samples) * input_std
-        X_test = x1.unsqueeze(1).repeat(1, n_dims)
-    else:
-        X_test = torch.randn(n_samples, n_dims) * input_std
-        
-    y_test = X_test @ true_weights + torch.randn(n_samples) * noise_std
-    return X_test, y_test
 
 def compute_analytic_nll_approximations(mu: torch.Tensor, sigma: torch.Tensor, 
                                       true_weights: torch.Tensor, Sigma_exact: torch.Tensor,
@@ -128,30 +131,3 @@ def compute_analytic_nll_approximations(mu: torch.Tensor, sigma: torch.Tensor,
     
     return nll_true, nll_approx, nll_exact
 
-def polynomial_basis(X: torch.Tensor, degree: int = 1):
-    """Apply polynomial basis transformation."""
-    if degree == 1:
-        return X
-    
-    feats = [X]
-    for d in range(2, degree + 1):
-        feats.append(X**d)
-    return torch.cat(feats, dim=1)
-
-def rbf_basis(X: torch.Tensor, centers: torch.Tensor, lengthscale: float = 1.0):
-    """Apply RBF basis transformation: exp(-||x - c||^2 / (2 * l^2))."""
-    # X: (N, D), centers: (M, D)
-    # Output: (N, M)
-    dist_sq = torch.cdist(X, centers)**2
-    return torch.exp(-dist_sq / (2 * lengthscale**2))
-
-def apply_basis(X: torch.Tensor, basis_type: str = 'identity', **kwargs):
-    """Generic basis application wrapper."""
-    if basis_type == 'identity' or basis_type is None:
-        return X
-    elif basis_type == 'polynomial':
-        return polynomial_basis(X, degree=kwargs.get('degree', 1))
-    elif basis_type == 'rbf':
-        return rbf_basis(X, centers=kwargs['centers'], lengthscale=kwargs.get('lengthscale', 1.0))
-    else:
-        raise ValueError(f"Unknown basis type: {basis_type}")

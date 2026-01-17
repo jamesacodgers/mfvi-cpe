@@ -1,19 +1,21 @@
 # this script creates plots of the NPLL as a function of posterior temperature
 # for various UCI data sets
 import os
-from uci_data import load_dataset
 import torch
 from math import log 
 import matplotlib.pyplot as plt
 
-
-from uci_tr_inequ import mfvi_post_analytic, full_cov_post, post_pred_mean_var
+from src.utils import set_seeds
+from src.UCI_data import load_dataset
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var
 
 dtype = torch.float64
 
 O_NOISE = .1
 P_PRSCISN = 1
 TR_FRC = 0.7
+
+set_seeds(42)
 
 def npll(X, y, Ts):
 
@@ -41,15 +43,15 @@ def npll(X, y, Ts):
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
-    mu, Sigma = full_cov_post(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
-    m_opt, S_opt = mfvi_post_analytic(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
     true_post_mean, true_post_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
-                                                       obs_noise=O_NOISE)
+                                                       noise_std=O_NOISE)
     
-    mfvi_post_mean, mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=S_opt, 
-                                                       obs_noise=O_NOISE, temp=Ts)
+    mfvi_post_mean, mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=torch.diag(S_opt), 
+                                                       noise_std=O_NOISE, temp=Ts)
     
     true_npll = log(2*torch.pi) / 2 + \
                     torch.log(true_post_var) / 2 + \
@@ -99,7 +101,7 @@ if __name__ == "__main__":
             ncol=2,
             frameon=False)
 
-    outpath = "figs/uci/uci_lin_npll.pdf"
+    outpath = "figs/uci/uci_lin_npll_test.pdf"
     os.makedirs("figs/uci/", exist_ok=True)
     fig.savefig(outpath, bbox_inches="tight")
     

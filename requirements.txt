@@ -9,3 +9,5 @@ jupyter
 wandb
 pandas
 ivon-opt
+openpyxl
+openml

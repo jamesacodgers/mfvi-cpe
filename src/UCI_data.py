@@ -88,6 +88,26 @@ def _split_xy(df: pd.DataFrame, target_col: str) -> Tuple[pd.DataFrame, pd.DataF
     X = df.drop(columns=[target_col])
     return X, y
 
+def _read_uci_zip_excel(
+    url: str,
+    member_suffix: str,
+    **read_excel_kw,
+) -> pd.DataFrame:
+    """Download a ZIP from `url`, find a member ending with `member_suffix`, read it as Excel."""
+    with urllib.request.urlopen(url) as resp:
+        data = resp.read()
+
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        matches = [m for m in z.namelist() if m.endswith(member_suffix)]
+        if not matches:
+            preview = z.namelist()[:30]
+            raise FileNotFoundError(
+                f"ZIP from {url} has no member ending with {member_suffix}. First members: {preview}"
+            )
+        member = matches[0]
+        with z.open(member) as f:
+            return pd.read_excel(f, **read_excel_kw)
+
 
 SPECS: dict[str, DatasetSpec] = {
     # --- UCI direct (older) ---
@@ -125,12 +145,19 @@ SPECS: dict[str, DatasetSpec] = {
     ),
 
     # --- UCI "new" catalog (use ucimlrepo) + fallbacks ---
+    # "power": DatasetSpec(
+    #     uci_id=294,
+    #     url="https://archive.ics.uci.edu/ml/machine-learning-databases/00294/CCPP.zip",
+    #     reader=lambda u: _read_uci_zip_member(u, "Folds5x2_pp.xlsx", header=0),
+    #     default_target="PE",
+    # ),
     "power": DatasetSpec(
-        uci_id=294,
-        url="https://archive.ics.uci.edu/ml/machine-learning-databases/00294/CCPP.zip",
-        reader=lambda u: _read_uci_zip_member(u, "Folds5x2_pp.xlsx", header=0),
-        default_target="PE",
+    uci_id=294,
+    url="https://archive.ics.uci.edu/ml/machine-learning-databases/00294/CCPP.zip",
+    reader=lambda u: _read_uci_zip_excel(u, "Folds5x2_pp.xlsx"),
+    default_target="PE",
     ),
+
     "naval": DatasetSpec(
         uci_id=316,
         url="https://archive.ics.uci.edu/static/public/316/condition%2Bbased%2Bmaintenance%2Bof%2Bnaval%2Bpropulsion%2Bplants.zip",

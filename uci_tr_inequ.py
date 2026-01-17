@@ -2,52 +2,19 @@
 # in Thm 4.5 on various UCI data sets (loading ta)
 
 import os
-from uci_data import load_dataset
 import torch
+
+from src.utils import set_seeds
+from src.UCI_data import load_dataset
+from src.linear_utils import compute_exact_posterior, compute_mfvi_analytic, post_pred_mean_var
+
 dtype = torch.float64
 
 O_NOISE = .1
 P_PRSCISN = 1
 TR_FRC = 0.7
 
-def full_cov_post(train_X, train_y, obs_noise, prior_prscisn):
-
-    # Mean and covariance of true posterior under a Normal-Normal linear model 
-
-    n, d = train_X.shape
-    Sigma_inv = train_X.T @ train_X / obs_noise**2 + prior_prscisn * torch.eye(d, dtype=dtype)
-    Sigma = torch.linalg.inv(Sigma_inv)
-
-    mu = Sigma @ train_X.T @ train_y / obs_noise**2
-
-    return mu, Sigma
-
-def mfvi_post_analytic(train_X, train_y, obs_noise, prior_prscisn):
-
-    # Optimal (in KL) mean and covariance of MFVI posterior under a Normal-Normal linear model
-    # Note: Here we compute them analytically, which is usually what we want to avoid 
-
-    n, d = train_X.shape
-    Sigma_inv = train_X.T @ train_X / obs_noise**2 + prior_prscisn * torch.eye(d, dtype=dtype)
-    Sigma_true = torch.linalg.inv(Sigma_inv)
-    Sigma = torch.diag(1 / torch.diag(Sigma_inv))
-
-    mu = Sigma_true @ train_X.T @ train_y / obs_noise**2
-
-    return mu, Sigma
-
-
-def post_pred_mean_var(test_X, post_mean, post_cov, obs_noise = None, temp = torch.ones((1,1), dtype=dtype)):
-    
-    # given (estimates of) the posterior parameters, 
-    # compute the posterior predictive mean and variance
-    # optional: temper the posterior with array shape (n_temps, 1)
-
-    mean = test_X @ post_mean
-    var = test_X.unsqueeze(1) @ post_cov.unsqueeze(0) @ test_X.unsqueeze(1).swapaxes(1,2) 
-    t_var = var.squeeze(1) @ temp.T # (n, n_temps)
-
-    return (mean, t_var) if obs_noise is None else (mean, t_var + obs_noise**2)
+set_seeds(42)
 
 def tr_exp(X, y):
 
@@ -74,30 +41,39 @@ def tr_exp(X, y):
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
-    mu, Sigma = full_cov_post(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    # mu, Sigma = full_cov_post(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
-    m_opt, S_opt = mfvi_post_analytic(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    # m_opt, S_opt = mfvi_post_analytic(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
-    _, true_post_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, obs_noise=None)
-    _, mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=S_opt, obs_noise=None)
+    _, train_true_post_var = post_pred_mean_var(test_X=X_tr, post_mean=mu, post_cov=Sigma, noise_std=None)
+    _, train_mfvi_post_var = post_pred_mean_var(test_X=X_tr, post_mean=m_opt, post_cov=torch.diag(S_opt), noise_std=None)
 
-    avg_true_post_var = true_post_var.mean()
-    avg_mfvi_post_var = mfvi_post_var.mean()
+    _, test_true_post_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, noise_std=None)
+    _, test_mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=torch.diag(S_opt), noise_std=None)
+
+    avg_test_true_post_var = test_true_post_var.mean()
+    avg_test_mfvi_post_var = test_mfvi_post_var.mean()
+
+    avg_train_true_post_var = train_true_post_var.mean()
+    avg_train_mfvi_post_var = train_mfvi_post_var.mean()
 
     # via trace
 
     # pre-process
     X = (X - X.mean(0)) / (X.std(0) + 1e-12)
     y -= y.mean()
-    _, Sigma = full_cov_post(train_X=X, train_y=y, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
-    _, S_opt = mfvi_post_analytic(train_X=X, train_y=y, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
+    _, Sigma = compute_exact_posterior(train_X=X, train_y=y, noise_std=O_NOISE, prior_precision=P_PRSCISN)
+    _, S_opt = compute_mfvi_analytic(train_X=X, train_y=y, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
     trace_Sigma = torch.diag(Sigma).sum()
     trace_S_opt = torch.diag(S_opt).sum()
 
-    return avg_mfvi_post_var, avg_true_post_var, trace_S_opt, trace_Sigma
+    return avg_train_mfvi_post_var, avg_train_true_post_var, avg_test_mfvi_post_var, avg_test_true_post_var, trace_S_opt, trace_Sigma
 
-datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
+# datasets = ["naval"]
+datasets = ["boston" , "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 def _fmt(x: float, *, sig: int = 4) -> str:
     # LaTeX-friendly formatting (uses scientific notation when needed)
@@ -107,24 +83,29 @@ if __name__ == "__main__":
     results = []
 
     for dataset in datasets:
+        print("="*50)
+        print(f"{dataset}".capitalize())
         X_df, y_df = load_dataset(dataset)
 
         X = torch.tensor(X_df.values, dtype=dtype)
         y = torch.tensor(y_df.values.squeeze(), dtype=dtype)
 
-        avg_mfvi_post_var, avg_true_post_var, trace_S_opt, trace_Sigma = tr_exp(X, y)
+        avg_train_mfvi_post_var, avg_train_true_post_var, avg_test_mfvi_post_var, avg_test_true_post_var, trace_S_opt, trace_Sigma = tr_exp(X, y)
 
         results.append({
             "dataset": dataset,
             "n": int(X.shape[0]),
             "d": int(X.shape[1]),
-            "avg_mfvi_post_var": float(avg_mfvi_post_var.item()),
-            "avg_true_post_var": float(avg_true_post_var.item()),
+            "avg_train_mfvi_post_var": float(avg_train_mfvi_post_var.item()),
+            "avg_train_true_post_var": float(avg_train_true_post_var.item()),
+            "avg_test_mfvi_post_var": float(avg_test_mfvi_post_var.item()),
+            "avg_test_true_post_var": float(avg_test_true_post_var.item()),
             "trace_S_opt": float(trace_S_opt.item()),
             "trace_Sigma": float(trace_Sigma.item()),
         })
-
-    cols = ["n", "d", "avg_mfvi_post_var", "avg_true_post_var", "trace_S_opt", "trace_Sigma"]
+        for key in results[-1]:
+            print(key, results[-1][key])
+    cols = ["n", "d", "avg_train_mfvi_post_var", "avg_train_true_post_var","avg_test_mfvi_post_var", "avg_test_true_post_var", "trace_S_opt", "trace_Sigma"]
 
     os.makedirs("figs/uci/", exist_ok=True)
     output_path = "figs/uci/tr_inequ_table.txt"
