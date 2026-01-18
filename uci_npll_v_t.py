@@ -8,12 +8,16 @@ import matplotlib.pyplot as plt
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
 from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var
+from src.basis_functions import apply_basis
 
 dtype = torch.float64
 
 O_NOISE = .1
 P_PRSCISN = 1
 TR_FRC = 0.7
+
+BASIS = "rbf" # | "identity" | "polynomial"
+BASIS_KWARGS = {"centers": None, "lengthscale": .5, "m" : 10 }  # {} | {"degree": 5} 
 
 set_seeds(42)
 
@@ -38,8 +42,16 @@ def npll(X, y, Ts):
     m_X_tr = X_tr.mean(0)
     std_X_tr = X_tr.std(0)
     m_y_tr = y_tr.mean()
-    X_tr = (X_tr - m_X_tr) / (std_X_tr + 1e-12)
-    X_te = (X_te - m_X_tr) / (std_X_tr + 1e-12)
+    X_tr = (X_tr - m_X_tr) / (std_X_tr + 1e-8)
+    X_te = (X_te - m_X_tr) / (std_X_tr + 1e-8)
+
+    if BASIS == "rbf":
+        centers = X_tr[:BASIS_KWARGS["m"]] # choose random center points
+        BASIS_KWARGS["centers"] = centers
+
+    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS)
+    X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
+
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
@@ -100,8 +112,10 @@ if __name__ == "__main__":
             loc="outside lower center",
             ncol=2,
             frameon=False)
+    
+    fig.suptitle(f"basis: {BASIS}")
 
-    outpath = "figs/uci/uci_lin_npll_test.pdf"
+    outpath = f"figs/uci/uci_lin_npll_test_{BASIS}.pdf"
     os.makedirs("figs/uci/", exist_ok=True)
     fig.savefig(outpath, bbox_inches="tight")
     

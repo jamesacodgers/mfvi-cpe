@@ -2,6 +2,7 @@ import torch
 
 def polynomial_basis(X: torch.Tensor, degree: int = 1):
     """Apply polynomial basis transformation."""
+    # Note: Not full polynomial basis, just powers
     if degree == 1:
         return X
     

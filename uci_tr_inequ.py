@@ -1,5 +1,5 @@
 # This script creates a LaTex table allowing us to verify the trace ineqality 
-# in Thm 4.5 on various UCI data sets (loading ta)
+# in Thm 4.5 on various UCI data sets (loading takes a sec)
 
 import os
 import torch
@@ -72,7 +72,7 @@ def tr_exp(X, y):
 
     return avg_train_mfvi_post_var, avg_train_true_post_var, avg_test_mfvi_post_var, avg_test_true_post_var, trace_S_opt, trace_Sigma
 
-# datasets = ["naval"]
+
 datasets = ["boston" , "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 def _fmt(x: float, *, sig: int = 4) -> str:
