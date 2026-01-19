@@ -17,7 +17,7 @@ P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 10, "m" : 10_000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
 set_seeds(42)
 
@@ -84,10 +84,16 @@ if __name__ == "__main__":
     Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype) 
     log10Ts = torch.log10(Ts)
 
+    p = BASIS_KWARGS["m"]
+    l = BASIS_KWARGS["lengthscale"]
+
     fig, axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
     axes = axes.ravel()
 
-    for ax, dataset in zip(axes, datasets):
+    eigvals_fig, eigvals_axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
+    eigvals_axes = eigvals_axes.ravel()
+
+    for ax, eigvals_ax, dataset in zip(axes, eigvals_axes, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -110,6 +116,21 @@ if __name__ == "__main__":
         ax.set_ylabel("Mean Test NLL")
 
         ax.grid(True, alpha=0.3)
+        m_X = X.mean(0)
+        std_X = X.std(0)
+        X = (X - m_X) / (std_X + 1e-8)
+
+        Phi = apply_basis(X=X, basis_type=BASIS, **BASIS_KWARGS)
+        PhiTPhi = Phi.T @ Phi
+        eigvals = torch.linalg.eigvalsh(PhiTPhi).numpy()
+
+        eigvals_ax.scatter(range(p), eigvals[::-1], label="Eigenvalues")
+
+        eigvals_ax.set_title(dataset)
+        eigvals_ax.set_xlabel("index")
+        eigvals_ax.set_ylabel("value")
+
+        eigvals_ax.grid(True, alpha=0.3)
 
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels,
@@ -119,11 +140,28 @@ if __name__ == "__main__":
     
     fig.suptitle(f"basis: {BASIS}")
 
-    p = BASIS_KWARGS["m"]
 
-    outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_p={p}.pdf"
+    outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_p={p}_l={l}.pdf"
     os.makedirs("figs/uci/", exist_ok=True)
     fig.savefig(outpath, bbox_inches="tight")
+
+    handles, labels = eigvals_axes[0].get_legend_handles_labels()
+    eigvals_fig.legend(handles, labels,
+            loc="outside lower center",
+            ncol=2,
+            frameon=False)
+
+    eigvals_fig.suptitle("Eigenvalues of Feature Gramm matrix")
+    eigvals_outpath = f"figs/uci/uci_eigvals_{BASIS}_p={p}_l={l}.pdf"
+    eigvals_fig.savefig(eigvals_outpath, bbox_inches="tight")
     
     print(f"Saved figure to {outpath}")
+    
+    print(f"Saved figure to {eigvals_outpath}")
 
+
+
+
+
+
+    
