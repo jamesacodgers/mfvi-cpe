@@ -17,7 +17,7 @@ P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
 
 set_seeds(42)
 
@@ -48,8 +48,15 @@ def npll(X, y, Ts):
     if BASIS == "rbf":
         # centers = X_tr[:BASIS_KWARGS["m"]] # choose random center points
         # BASIS_KWARGS["centers"] = centers
-        centers = torch.randn((BASIS_KWARGS["m"], d))
-        BASIS_KWARGS["centers"] = centers
+
+        # sample center from Gaussian with emprical covariance
+        eps = torch.randn((BASIS_KWARGS["m"], d))
+        n_tr, _ = X_tr.shape
+        X_trX_tr = X_tr.T @ X_tr / n_tr
+        L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
+        centers = L_tr[None, ...] @ eps[..., None] 
+ 
+        BASIS_KWARGS["centers"] = centers.squeeze(-1)
 
     X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS)
     X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
@@ -116,6 +123,7 @@ if __name__ == "__main__":
         ax.set_ylabel("Mean Test NLL")
 
         ax.grid(True, alpha=0.3)
+
         m_X = X.mean(0)
         std_X = X.std(0)
         X = (X - m_X) / (std_X + 1e-8)
