@@ -91,6 +91,7 @@ if __name__ == "__main__":
     Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype) 
     log10Ts = torch.log10(Ts)
 
+  
     p = BASIS_KWARGS["m"]
     l = BASIS_KWARGS["lengthscale"]
 

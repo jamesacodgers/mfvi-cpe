@@ -8,11 +8,16 @@ from src.utils import set_seeds
 from src.UCI_data import load_dataset
 from src.linear_utils import compute_exact_posterior, compute_mfvi_analytic, post_pred_mean_var
 
+from src.basis_functions import apply_basis
+
 dtype = torch.float64
 
 O_NOISE = .1
 P_PRSCISN = 1
 TR_FRC = 0.7
+
+BASIS = "rbf" # | "identity" | "polynomial"
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
 
 set_seeds(42)
 
@@ -41,6 +46,23 @@ def tr_exp(X, y):
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
+    if BASIS == "rbf":
+        # centers = X_tr[:BASIS_KWARGS["m"]] # choose random center points
+        # BASIS_KWARGS["centers"] = centers
+
+        # sample center from Gaussian with emprical covariance
+        eps = torch.randn((BASIS_KWARGS["m"], d))
+        n_tr, _ = X_tr.shape
+        X_trX_tr = X_tr.T @ X_tr / n_tr
+        L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
+        centers = L_tr[None, ...] @ eps[..., None] 
+ 
+        BASIS_KWARGS["centers"] = centers.squeeze(-1)
+
+    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS)
+    X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
+
+    
     # mu, Sigma = full_cov_post(train_X=X_tr, train_y=y_tr, obs_noise=O_NOISE, prior_prscisn=P_PRSCISN)
     mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
 
@@ -63,6 +85,22 @@ def tr_exp(X, y):
 
     # pre-process
     X = (X - X.mean(0)) / (X.std(0) + 1e-12)
+
+    if BASIS == "rbf":
+        # centers = X_tr[:BASIS_KWARGS["m"]] # choose random center points
+        # BASIS_KWARGS["centers"] = centers
+
+        # sample center from Gaussian with emprical covariance
+        eps = torch.randn((BASIS_KWARGS["m"], d))
+        n, _ = X.shape
+        XX = X.T @ X / n
+        L, _ = torch.linalg.cholesky_ex(XX)
+        centers = L[None, ...] @ eps[..., None] 
+ 
+        BASIS_KWARGS["centers"] = centers.squeeze(-1)
+
+    X = apply_basis(X=X, basis_type=BASIS, **BASIS_KWARGS)
+
     y -= y.mean()
     _, Sigma = compute_exact_posterior(train_X=X, train_y=y, noise_std=O_NOISE, prior_precision=P_PRSCISN)
     _, S_opt = compute_mfvi_analytic(train_X=X, train_y=y, noise_std=O_NOISE, prior_precision=P_PRSCISN)
@@ -132,7 +170,8 @@ if __name__ == "__main__":
 
         print(r"\bottomrule", file=f)
         print(r"\end{tabular}", file=f)
-        print(r"\caption{Results across datasets.}", file=f)
+        BASIS_KWARGS.pop("centers", None)
+        print(fr"\caption{{Results across datasets for BASIS={BASIS}, BASIS\_KWARGS={BASIS_KWARGS}.}}", file=f)
         print(r"\label{tab:results}", file=f)
         print(r"\end{table}", file=f)
 
