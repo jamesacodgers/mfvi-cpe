@@ -1,6 +1,9 @@
 import torch
 import numpy as np
 from torch.distributions import Normal
+import math
+
+dtype = torch.float64
 
 # Set default dtype to float64 for numerical stability
 torch.set_default_dtype(torch.float64)
@@ -131,3 +134,88 @@ def compute_analytic_nll_approximations(mu: torch.Tensor, sigma: torch.Tensor,
     
     return nll_true, nll_approx, nll_exact
 
+
+import math
+import torch
+
+def opt_sigma(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    prior_precision: float,
+    *,
+    lr: float = 5e-2,
+    steps: int = 500,
+    init_sigma: float = 0.1,
+    jitter: float = 1e-8,
+    verbose: bool = False,
+):
+    # assume X is already standardized and y is centered
+
+    device = X.device
+    X = X.to(dtype=dtype, device=device)
+    y = y.to(dtype=dtype, device=device)
+
+    n, d = X.shape
+    a = torch.as_tensor(prior_precision, dtype=dtype, device=device)
+
+    log_sigma2 = torch.tensor(
+        math.log(init_sigma**2), dtype=dtype, device=device, requires_grad=True
+    )
+    opt = torch.optim.Adam([log_sigma2], lr=lr)
+
+    I_n = torch.eye(n, dtype=dtype, device=device)
+    I_d = torch.eye(d, dtype=dtype, device=device)
+
+    use_primal = (n > d)  # primal (dxd) if n>d, dual (nxn) if n<=d
+
+    if use_primal:
+        XX = X.T @ X
+        Xy = X.T @ y
+    else:
+        K = X @ X.T
+
+    hist = []
+    log2pi = math.log(2.0 * math.pi)
+
+    for t in range(steps):
+        opt.zero_grad()
+
+        sigma2 = torch.exp(log_sigma2)
+
+        if use_primal:
+            A = I_d + (1.0 / (a * sigma2)) * XX
+            A = A + jitter * I_d
+            L = torch.linalg.cholesky_ex(A)
+
+            logdetA = 2.0 * torch.log(torch.diag(L)).sum()
+            logdetC = n * torch.log(sigma2) + logdetA
+
+            v = torch.cholesky_solve(Xy.unsqueeze(1), L).squeeze(1)
+            v = (1.0 / a) * v
+
+            Cinv_y = (y / sigma2) - (X @ v) / (sigma2 * sigma2)
+            quad = y.dot(Cinv_y)
+
+        else:
+            C = sigma2 * I_n + (1.0 / a) * K
+            C = C + jitter * I_n
+            L = torch.linalg.cholesky(C)
+
+            logdetC = 2.0 * torch.log(torch.diag(L)).sum()
+
+            alpha = torch.cholesky_solve(y.unsqueeze(1), L).squeeze(1)
+            quad = y.dot(alpha)
+
+        logp = -0.5 * (logdetC + quad + n * log2pi)
+
+        loss = -logp
+        loss.backward()
+        opt.step()
+
+        hist.append(float(logp.detach().cpu()))
+
+        if verbose and (t % max(1, steps // 10) == 0 or t == steps - 1):
+            print(f"[{t:4d}] sigma={float(torch.sqrt(sigma2).detach().cpu()):.6g}, logp={hist[-1]:.6g}")
+
+    sigma_hat = float(torch.sqrt(torch.exp(log_sigma2)).detach().cpu())
+    return sigma_hat, hist

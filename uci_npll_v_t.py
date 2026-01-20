@@ -7,17 +7,22 @@ import matplotlib.pyplot as plt
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma
 from src.basis_functions import apply_basis
+
 
 dtype = torch.float64
 
-O_NOISE = .1
+O_NOISE = .1 # overridden if LEARN_NOISE == True
+LEARN_NOISE = True
 P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+
+# BASIS = "identity"
+# BASIS_KWARGS = {}
 
 set_seeds(42)
 
@@ -27,6 +32,7 @@ def npll(X, y, Ts):
     # Note: we return the mean to make numbers comparable acorss data set size
 
     n, d = X.shape
+    
 
     # via expectation under true input distribution
 
@@ -50,29 +56,37 @@ def npll(X, y, Ts):
         # BASIS_KWARGS["centers"] = centers
 
         # sample center from Gaussian with emprical covariance
-        eps = torch.randn((BASIS_KWARGS["m"], d))
-        n_tr, _ = X_tr.shape
+        eps = torch.randn((BASIS_KWARGS["m"], d), dtype=dtype)
+        n_tr, d = X_tr.shape
         X_trX_tr = X_tr.T @ X_tr / n_tr
         L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
         centers = L_tr[None, ...] @ eps[..., None] 
  
         BASIS_KWARGS["centers"] = centers.squeeze(-1)
 
-    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS)
+    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS); print(X_tr.shape)
     X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
+
+
 
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
-    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
+    noise_std = O_NOISE
+    if LEARN_NOISE:
+        sigma, _ = opt_sigma(X_tr, y_tr, prior_precision=P_PRSCISN, verbose=True, init_sigma=0.1)
+        noise_std = sigma
 
-    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=O_NOISE, prior_precision=P_PRSCISN)
+
+    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=P_PRSCISN)
+
+    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=P_PRSCISN)
 
     true_post_mean, true_post_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
-                                                       noise_std=O_NOISE)
+                                                       noise_std=noise_std, temp=Ts)
     
     mfvi_post_mean, mfvi_post_var = post_pred_mean_var(test_X=X_te, post_mean=m_opt, post_cov=torch.diag(S_opt), 
-                                                       noise_std=O_NOISE, temp=Ts)
+                                                       noise_std=noise_std, temp=Ts)
     
     true_npll = log(2*torch.pi) / 2 + \
                     torch.log(true_post_var) / 2 + \
@@ -85,15 +99,16 @@ def npll(X, y, Ts):
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
-
-
 if __name__ == "__main__":
     Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype) 
     log10Ts = torch.log10(Ts)
 
-  
-    p = BASIS_KWARGS["m"]
-    l = BASIS_KWARGS["lengthscale"]
+    if BASIS == "rbf":
+        p = BASIS_KWARGS["m"]
+        l = BASIS_KWARGS["lengthscale"]
+    
+    if BASIS == "polynomial":
+        deg = BASIS_KWARGS["degree"]
 
     fig, axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
     axes = axes.ravel()
@@ -116,8 +131,10 @@ if __name__ == "__main__":
         # MFVI curve
         ax.plot(log10Ts, mfvi_nplls, label="MFVI")
 
-        # True posterior horizontal line (constant across temperatures)
-        ax.axhline(true_npll, linestyle="--", label="True posterior")
+        ax.plot(log10Ts, true_npll, label="Full Covariance")
+
+        # True posterior horizontal line 
+        ax.axhline(true_npll[-1], linestyle="--", label="True posterior")
 
         ax.set_title(dataset)
         ax.set_xlabel(r"$\log_{10}(T)$")
@@ -133,7 +150,7 @@ if __name__ == "__main__":
         PhiTPhi = Phi.T @ Phi
         eigvals = torch.linalg.eigvalsh(PhiTPhi).numpy()
 
-        eigvals_ax.scatter(range(p), eigvals[::-1], label="Eigenvalues")
+        eigvals_ax.scatter(range(len(eigvals)), eigvals[::-1], label="Eigenvalues")
 
         eigvals_ax.set_title(dataset)
         eigvals_ax.set_xlabel("index")
@@ -149,8 +166,18 @@ if __name__ == "__main__":
     
     fig.suptitle(f"basis: {BASIS}")
 
+    if BASIS == "rbf":
+        outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_p={p}_l={l}.pdf"
+        eigvals_outpath = f"figs/uci/uci_eigvals_{BASIS}_p={p}_l={l}.pdf"
 
-    outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_p={p}_l={l}.pdf"
+    elif BASIS == "polynomial":
+        outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_deg={deg}.pdf"
+        eigvals_outpath = f"figs/uci/uci_eigvals_{BASIS}_deg={deg}.pdf"
+
+    else:
+        outpath = f"figs/uci/uci_lin_npll_test_{BASIS}.pdf"
+        eigvals_outpath = f"figs/uci/uci_eigvals_{BASIS}.pdf"
+
     os.makedirs("figs/uci/", exist_ok=True)
     fig.savefig(outpath, bbox_inches="tight")
 
@@ -161,7 +188,6 @@ if __name__ == "__main__":
             frameon=False)
 
     eigvals_fig.suptitle("Eigenvalues of Feature Gramm matrix")
-    eigvals_outpath = f"figs/uci/uci_eigvals_{BASIS}_p={p}_l={l}.pdf"
     eigvals_fig.savefig(eigvals_outpath, bbox_inches="tight")
     
     print(f"Saved figure to {outpath}")
