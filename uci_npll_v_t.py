@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l, kl_truepred_tmfvipred
 from src.basis_functions import apply_basis
 
 
@@ -16,12 +16,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = True
+LEARN_NOISE_L = False
 P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -93,13 +93,16 @@ def npll(X, y, Ts):
     mfvi_nplls = log(2*torch.pi) / 2 + \
                     torch.log(mfvi_post_var) / 2 + \
                     (y_te - mfvi_post_mean)[:, None]**2 / mfvi_post_var / 2
+    
+    true_T1 = true_post_var[:, [-1]]
+    kls = 0.5 * torch.log(mfvi_post_var / true_T1) + 0.5 * true_T1 / mfvi_post_var - 0.5
 
-    return torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0)
+    return torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0), torch.mean(kls, dim=0)
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype, device=device) 
+    Ts = 10 ** torch.linspace(-3, 4, 100, dtype=dtype, device=device) 
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -117,6 +120,8 @@ if __name__ == "__main__":
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
 
+    ax2_first = None
+
     for ax, eigvals_ax, dataset in zip(axes, eigvals_axes, datasets):
         print("="*50)
         print(dataset.capitalize())
@@ -125,18 +130,24 @@ if __name__ == "__main__":
         X = torch.tensor(X_df.values, dtype=dtype, device=device)
         y = torch.tensor(y_df.values.squeeze(), dtype=dtype, device=device)
 
-        true_npll, mfvi_nplls = npll(X, y, Ts[:, None])  
+        true_npll, mfvi_nplls, kl = npll(X, y, Ts[:, None])
         true_npll = true_npll.detach().cpu().numpy()
         mfvi_nplls = mfvi_nplls.detach().cpu().numpy()
+        kl = kl.detach().cpu().numpy()
 
         ax.plot(log10Ts_np, mfvi_nplls, label="MFVI")
         ax.plot(log10Ts_np, true_npll, label="Full Covariance")
         ax.axhline(true_npll[-1], linestyle="--", label="True posterior")
 
+        ax2 = ax.twinx()
+        if ax2_first is None:
+            ax2_first = ax2
+        ax2.plot(log10Ts_np, kl, label="post pred KL(true(T=1) || T-mfvi) ", color="green")
+        ax2.set_ylabel("KL")
+
         ax.set_title(dataset)
         ax.set_xlabel(r"$\log_{10}(T)$")
         ax.set_ylabel("Mean Test NLL")
-
         ax.grid(True, alpha=0.3)
 
         m_X = X.mean(0)
@@ -148,20 +159,20 @@ if __name__ == "__main__":
         eigvals = torch.linalg.eigvalsh(PhiTPhi).detach().cpu().numpy()
 
         eigvals_ax.scatter(range(len(eigvals)), eigvals[::-1], label="Eigenvalues")
-
         eigvals_ax.set_title(dataset)
         eigvals_ax.set_xlabel("index")
         eigvals_ax.set_ylabel("value")
-
         eigvals_ax.grid(True, alpha=0.3)
 
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels,
+    handles1, labels1 = axes[0].get_legend_handles_labels()
+    handles2, labels2 = ax2_first.get_legend_handles_labels()
+    fig.legend(handles1 + handles2, labels1 + labels2,
             loc="outside lower center",
             ncol=2,
             frameon=False)
-    
+
     fig.suptitle(f"basis: {BASIS}")
+
 
     if BASIS == "rbf":
         outpath = f"figs/uci/uci_lin_npll_test_{BASIS}_p={p}_l={l}.pdf"

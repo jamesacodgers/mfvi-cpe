@@ -23,6 +23,18 @@ def post_pred_mean_var(test_X, post_mean, post_cov, noise_std = None, temp = tor
 
     return (mean, t_var) if noise_std is None else (mean, t_var + noise_std**2)
 
+def kl_truepred_tmfvipred(test_X, mu, Sigma, S, noise_std, temp = torch.ones((1,1))):
+
+    # compute KL from true poster predictive to mfvi posterior predictive
+    # optional: temper the posterior with array shape (n_temps, 1)
+
+    _, true_pred_var = post_pred_mean_var(test_X, mu, Sigma, noise_std) # (n, 1)
+    _, tmfvi_pred_var = post_pred_mean_var(test_X, mu, S, noise_std, temp) # (n, n_temps)
+
+    kls = 0.5 * torch.log(tmfvi_pred_var / true_pred_var) + 0.5 * true_pred_var / tmfvi_pred_var - 0.5
+
+    return torch.sum(kls, dim=0)
+
 def compute_mfvi_analytic(train_X: torch.Tensor, train_y: torch.Tensor, temperature: float = 1.0, prior_precision = 1.0,
                           noise_std: float = 1.0):
     """
