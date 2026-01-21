@@ -12,17 +12,19 @@ from src.basis_functions import apply_basis
 
 
 dtype = torch.float64
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE == True
-LEARN_NOISE = True
+LEARN_NOISE = False
 P_PRSCISN = 1
 TR_FRC = 0.7
 
-BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+# BASIS = "rbf" # | "identity" | "polynomial"
+# BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
-# BASIS = "identity"
-# BASIS_KWARGS = {}
+BASIS = "identity"
+BASIS_KWARGS = {}
 
 set_seeds(42)
 
@@ -38,7 +40,7 @@ def npll(X, y, Ts):
 
     # pre-process
     tt_split_ind = int(TR_FRC * n)
-    perm = torch.randperm(n)
+    perm = torch.randperm(n, device=X.device)
     X = X[perm]
     X_tr = X[:tt_split_ind]
     X_te = X[tt_split_ind:]
@@ -56,7 +58,7 @@ def npll(X, y, Ts):
         # BASIS_KWARGS["centers"] = centers
 
         # sample center from Gaussian with emprical covariance
-        eps = torch.randn((BASIS_KWARGS["m"], d), dtype=dtype)
+        eps = torch.randn((BASIS_KWARGS["m"], d), dtype=dtype, device=X.device)
         n_tr, d = X_tr.shape
         X_trX_tr = X_tr.T @ X_tr / n_tr
         L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
@@ -100,7 +102,7 @@ def npll(X, y, Ts):
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype) 
+    Ts = 10 ** torch.linspace(-4, 0, 100, dtype=dtype, device=device) 
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -116,24 +118,22 @@ if __name__ == "__main__":
     eigvals_fig, eigvals_axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
     eigvals_axes = eigvals_axes.ravel()
 
+    log10Ts_np = log10Ts.detach().cpu().numpy()
+
     for ax, eigvals_ax, dataset in zip(axes, eigvals_axes, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
 
-        X = torch.tensor(X_df.values, dtype=dtype)
-        y = torch.tensor(y_df.values.squeeze(), dtype=dtype)
+        X = torch.tensor(X_df.values, dtype=dtype, device=device)
+        y = torch.tensor(y_df.values.squeeze(), dtype=dtype, device=device)
 
         true_npll, mfvi_nplls = npll(X, y, Ts[:, None])  
-        true_npll = true_npll.numpy()
-        mfvi_nplls = mfvi_nplls.numpy()
+        true_npll = true_npll.detach().cpu().numpy()
+        mfvi_nplls = mfvi_nplls.detach().cpu().numpy()
 
-        # MFVI curve
-        ax.plot(log10Ts, mfvi_nplls, label="MFVI")
-
-        ax.plot(log10Ts, true_npll, label="Full Covariance")
-
-        # True posterior horizontal line 
+        ax.plot(log10Ts_np, mfvi_nplls, label="MFVI")
+        ax.plot(log10Ts_np, true_npll, label="Full Covariance")
         ax.axhline(true_npll[-1], linestyle="--", label="True posterior")
 
         ax.set_title(dataset)
@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
         Phi = apply_basis(X=X, basis_type=BASIS, **BASIS_KWARGS)
         PhiTPhi = Phi.T @ Phi
-        eigvals = torch.linalg.eigvalsh(PhiTPhi).numpy()
+        eigvals = torch.linalg.eigvalsh(PhiTPhi).detach().cpu().numpy()
 
         eigvals_ax.scatter(range(len(eigvals)), eigvals[::-1], label="Eigenvalues")
 
@@ -193,10 +193,3 @@ if __name__ == "__main__":
     print(f"Saved figure to {outpath}")
     
     print(f"Saved figure to {eigvals_outpath}")
-
-
-
-
-
-
-    
