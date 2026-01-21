@@ -15,8 +15,10 @@ def rbf_basis(X: torch.Tensor, centers: torch.Tensor, lengthscale: float = 1.0):
     """Apply RBF basis transformation: exp(-||x - c||^2 / (2 * l^2))."""
     # X: (N, D), centers: (M, D)
     # Output: (N, M)
-    dist_sq = torch.cdist(X, centers)**2
-    return torch.exp(-dist_sq / (2 * lengthscale**2))
+
+    dist = torch.cdist(X, centers)
+
+    return torch.exp(-(dist /  lengthscale)**2 / 2)
 
 def apply_basis(X: torch.Tensor, basis_type: str = 'identity', **kwargs):
     """Generic basis application wrapper."""

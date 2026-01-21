@@ -11,13 +11,18 @@ from src.linear_utils import compute_exact_posterior, compute_mfvi_analytic, pos
 from src.basis_functions import apply_basis
 
 dtype = torch.float64
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 O_NOISE = .1
 P_PRSCISN = 1
 TR_FRC = 0.7
 
-BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
+# BASIS = "rbf" # | "identity" | "polynomial"
+# BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
+
+BASIS = "identity"
+BASIS_KWARGS = {}
 
 set_seeds(42)
 
@@ -51,7 +56,7 @@ def tr_exp(X, y):
         # BASIS_KWARGS["centers"] = centers
 
         # sample center from Gaussian with emprical covariance
-        eps = torch.randn((BASIS_KWARGS["m"], d))
+        eps = torch.randn((BASIS_KWARGS["m"], d)).to(X_tr)
         n_tr, _ = X_tr.shape
         X_trX_tr = X_tr.T @ X_tr / n_tr
         L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
@@ -91,7 +96,7 @@ def tr_exp(X, y):
         # BASIS_KWARGS["centers"] = centers
 
         # sample center from Gaussian with emprical covariance
-        eps = torch.randn((BASIS_KWARGS["m"], d))
+        eps = torch.randn((BASIS_KWARGS["m"], d)).to(X)
         n, _ = X.shape
         XX = X.T @ X / n
         L, _ = torch.linalg.cholesky_ex(XX)
@@ -125,8 +130,8 @@ if __name__ == "__main__":
         print(f"{dataset}".capitalize())
         X_df, y_df = load_dataset(dataset)
 
-        X = torch.tensor(X_df.values, dtype=dtype)
-        y = torch.tensor(y_df.values.squeeze(), dtype=dtype)
+        X = torch.tensor(X_df.values, dtype=dtype, device=device)
+        y = torch.tensor(y_df.values.squeeze(), dtype=dtype, device=device)
 
         avg_train_mfvi_post_var, avg_train_true_post_var, avg_test_mfvi_post_var, avg_test_true_post_var, trace_S_opt, trace_Sigma = tr_exp(X, y)
 

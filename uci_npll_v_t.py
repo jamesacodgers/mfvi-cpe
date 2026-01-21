@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
 from src.basis_functions import apply_basis
 
 
@@ -15,16 +15,16 @@ dtype = torch.float64
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
-O_NOISE = .1 # overridden if LEARN_NOISE == True
-LEARN_NOISE = False
+O_NOISE = .1 # overridden if LEARN_NOISE_L == True
+LEARN_NOISE_L = True
 P_PRSCISN = 1
 TR_FRC = 0.7
 
-# BASIS = "rbf" # | "identity" | "polynomial"
-# BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS = "rbf" # | "identity" | "polynomial"
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
-BASIS = "identity"
-BASIS_KWARGS = {}
+# BASIS = "identity"
+# BASIS_KWARGS = {}
 
 set_seeds(42)
 
@@ -35,7 +35,6 @@ def npll(X, y, Ts):
 
     n, d = X.shape
     
-
     # via expectation under true input distribution
 
     # pre-process
@@ -61,24 +60,22 @@ def npll(X, y, Ts):
         eps = torch.randn((BASIS_KWARGS["m"], d), dtype=dtype, device=X.device)
         n_tr, d = X_tr.shape
         X_trX_tr = X_tr.T @ X_tr / n_tr
-        L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr)
+        L_tr, _ = torch.linalg.cholesky_ex(X_trX_tr + 1e-6 * torch.eye(d).to(X))
         centers = L_tr[None, ...] @ eps[..., None] 
- 
         BASIS_KWARGS["centers"] = centers.squeeze(-1)
-
-    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS); print(X_tr.shape)
-    X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
-
-
 
     y_tr -= m_y_tr
     y_te -= m_y_tr
 
     noise_std = O_NOISE
-    if LEARN_NOISE:
-        sigma, _ = opt_sigma(X_tr, y_tr, prior_precision=P_PRSCISN, verbose=True, init_sigma=0.1)
+    if LEARN_NOISE_L:
+        sigma, l,  _ = opt_sigma_l(X_tr, y_tr, prior_precision=P_PRSCISN, basis_kwargs=BASIS_KWARGS, basis_type=BASIS,
+                                   init_sigma=0.1, init_l=1, verbose=True, steps=1000)
         noise_std = sigma
+        BASIS_KWARGS["lengthscale"] = l
 
+    X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS); print(X_tr.shape)
+    X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS)
 
     mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=P_PRSCISN)
 
@@ -107,7 +104,7 @@ if __name__ == "__main__":
 
     if BASIS == "rbf":
         p = BASIS_KWARGS["m"]
-        l = BASIS_KWARGS["lengthscale"]
+        l = BASIS_KWARGS["lengthscale"] if not LEARN_NOISE_L else "learned"
     
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
