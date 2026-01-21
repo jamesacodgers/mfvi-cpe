@@ -17,7 +17,7 @@ def post_pred_mean_var(test_X, post_mean, post_cov, noise_std = None, temp = tor
 
     mean = test_X @ post_mean
     var = test_X.unsqueeze(1) @ post_cov.unsqueeze(0) @ test_X.unsqueeze(1).swapaxes(1,2) 
-    t_var = var.squeeze(1) @ temp.T # (n, n_temps)
+    t_var = var.squeeze(1) @ temp.T.to(test_X) # (n, n_temps)
 
     return (mean, t_var) if noise_std is None else (mean, t_var + noise_std**2)
 
@@ -32,7 +32,7 @@ def compute_mfvi_analytic(train_X: torch.Tensor, train_y: torch.Tensor, temperat
     
     # Posterior precision (Cold: 1/T * (Likelihood Precision + Prior Precision))
     # Total precision = 1/T * (X^T X / sigma^2 + I)
-    precision = (XTX / (noise_std**2) + prior_precision*torch.eye(train_X.shape[1])) / temperature
+    precision = (XTX / (noise_std**2) + prior_precision*torch.eye(train_X.shape[1]).to(train_X)) / temperature
     
     # Posterior mean (Independent of T)
     mu = torch.linalg.solve(precision, XTy / (temperature * noise_std**2))
@@ -47,7 +47,7 @@ def compute_exact_posterior(train_X, train_y, noise_std, prior_precision):
     # Mean and covariance of true posterior under a Normal-Normal linear model 
 
     n, d = train_X.shape
-    Precision_matrix = train_X.T @ train_X / noise_std**2 + prior_precision * torch.eye(d)
+    Precision_matrix = train_X.T @ train_X / noise_std**2 + prior_precision * torch.eye(d).to(train_X)
     Sigma = torch.linalg.inv(Precision_matrix)
 
     mu = Sigma @ train_X.T @ train_y / noise_std**2
