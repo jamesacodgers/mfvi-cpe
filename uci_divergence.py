@@ -21,15 +21,15 @@ LEARN_NOISE_L = False
 P_PRSCISN = 1
 TR_FRC = 0.7
 
-# BASIS = "rbf" # | "identity" | "polynomial"
-# BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 50 }  # {} | {"degree": 5} 
+BASIS = "rbf" # | "identity" | "polynomial"
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
-BASIS = "identity"
-BASIS_KWARGS = {}
+# BASIS = "identity"
+# BASIS_KWARGS = {}
 
 set_seeds(42)
 
-def divergences(X, y, Ts, n_max = 10000):
+def divergences(X, y, Ts, n_max = 1000):
 
     # Ts shape (n_temps, 1)
 
@@ -45,7 +45,7 @@ def divergences(X, y, Ts, n_max = 10000):
     X_te = X[tt_split_ind:n_eff]
     y = y[perm]
     y_tr = y[:tt_split_ind]
-    y_te = y[tt_split_ind:]
+    y_te = y[tt_split_ind:n_eff]
     m_X_tr = X_tr.mean(0)
     std_X_tr = X_tr.std(0)
     m_y_tr = y_tr.mean()
@@ -109,7 +109,7 @@ def divergences(X, y, Ts, n_max = 10000):
     metrix["rev_kls_tr"] = torch.mean(rev_kls_tr, dim=0).detach().cpu().numpy()
 
 
-    sig_true_te = X_te @ Sigma @ X_te.T + noise_std**2 * torch.eye(n_te); sig_true_te_inv = torch.linalg.inv(sig_true_te); sig_true_te_det = torch.det(sig_true_te)
+    sig_true_te = X_te @ Sigma @ X_te.T + noise_std**2 * torch.eye(n_te).to(X); sig_true_te_inv = torch.linalg.inv(sig_true_te); sig_true_te_det = torch.det(sig_true_te)
     sig_mfvi_te = Ts[..., None] * (X_te @ torch.diag(S_opt) @ X_te.T)[None, ...] + noise_std**2 * torch.eye(n_te)[None, ...].to(X); sig_mfvi_te_inv = torch.linalg.inv(sig_mfvi_te); sig_mfvi_te_det = torch.det(sig_mfvi_te)
     sig_true_tr = X_tr @ Sigma @ X_tr.T + noise_std**2 * torch.eye(n_tr).to(X); sig_true_tr_inv = torch.linalg.inv(sig_true_tr); sig_true_tr_det = torch.det(sig_true_tr)
     sig_mfvi_tr = Ts[..., None] * (X_tr @ torch.diag(S_opt) @ X_tr.T)[None, ...] + noise_std**2 * torch.eye(n_tr)[None, ...].to(X); sig_mfvi_tr_inv = torch.linalg.inv(sig_mfvi_tr); sig_mfvi_tr_det = torch.det(sig_mfvi_tr)
@@ -129,7 +129,7 @@ def divergences(X, y, Ts, n_max = 10000):
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-3, 3, 100, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(-3, 3, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -155,10 +155,10 @@ if __name__ == "__main__":
 
         metrix = divergences(X, y, Ts[:, None])
 
-        ax.plot(log10Ts_np, metrix["fwd_kls_te"], label="marg fwd KL te")
-        ax.plot(log10Ts_np, metrix["rev_kls_te"], label="marg rev KL te")
-        ax.plot(log10Ts_np, metrix["fwd_kls_tr"], label="marg fwd KL tr")
-        ax.plot(log10Ts_np, metrix["rev_kls_tr"], label="marg rev KL tr")
+        ax.plot(log10Ts_np, metrix["fwd_kls_te"], label="marg fwd KL te", linestyle="--")
+        ax.plot(log10Ts_np, metrix["rev_kls_te"], label="marg rev KL te", linestyle="--")
+        ax.plot(log10Ts_np, metrix["fwd_kls_tr"], label="marg fwd KL tr", linestyle="--")
+        ax.plot(log10Ts_np, metrix["rev_kls_tr"], label="marg rev KL tr", linestyle="--")
 
         ax2 = ax.twinx()
         if ax2_first is None:
