@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l, kl_truepred_tmfvipred
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
 from src.basis_functions import apply_basis
 
 
@@ -94,15 +94,21 @@ def npll(X, y, Ts):
                     torch.log(mfvi_post_var) / 2 + \
                     (y_te - mfvi_post_mean)[:, None]**2 / mfvi_post_var / 2
     
-    true_T1 = true_post_var[:, [-1]]
-    kls = 0.5 * torch.log(mfvi_post_var / true_T1) + 0.5 * true_T1 / mfvi_post_var - 0.5
 
-    return torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0), torch.mean(kls, dim=0)
+    true_T1_mean, true_T1_var = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
+                                                       noise_std=noise_std)
+    
+    true_T1_npll = log(2*torch.pi) / 2 + \
+                        torch.log(true_T1_var) / 2 + \
+                        (y_te - true_T1_mean)[:, None]**2 / true_T1_var / 2
+    kls = 0.5 * torch.log(mfvi_post_var / true_T1_var) + 0.5 * true_T1_var / mfvi_post_var - 0.5
+
+    return torch.mean(true_T1_npll, dim = 0), torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0), torch.mean(kls, dim=0)
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-3, 4, 100, dtype=dtype, device=device) 
+    Ts = 10 ** torch.linspace(-3, 3, 100, dtype=dtype, device=device) 
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -130,14 +136,15 @@ if __name__ == "__main__":
         X = torch.tensor(X_df.values, dtype=dtype, device=device)
         y = torch.tensor(y_df.values.squeeze(), dtype=dtype, device=device)
 
-        true_npll, mfvi_nplls, kl = npll(X, y, Ts[:, None])
+        true_t1_npll, true_npll, mfvi_nplls, kl = npll(X, y, Ts[:, None])
+        true_t1_npll = true_t1_npll.detach().cpu().numpy()
         true_npll = true_npll.detach().cpu().numpy()
         mfvi_nplls = mfvi_nplls.detach().cpu().numpy()
         kl = kl.detach().cpu().numpy()
 
-        ax.plot(log10Ts_np, mfvi_nplls, label="MFVI")
-        ax.plot(log10Ts_np, true_npll, label="Full Covariance")
-        ax.axhline(true_npll[-1], linestyle="--", label="True posterior")
+        ax.plot(log10Ts_np, mfvi_nplls, label="MFVI", color = "orange")
+        ax.plot(log10Ts_np, true_npll, label="Full Covariance", color = "blue")
+        ax.axhline(true_t1_npll, linestyle="--", label="True posterior", color = "blue")
 
         ax2 = ax.twinx()
         if ax2_first is None:
