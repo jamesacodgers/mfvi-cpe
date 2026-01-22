@@ -35,8 +35,6 @@ def npll(X, y, Ts):
 
     n, d = X.shape
     
-    # via expectation under true input distribution
-
     # pre-process
     tt_split_ind = int(TR_FRC * n)
     perm = torch.randperm(n, device=X.device)
