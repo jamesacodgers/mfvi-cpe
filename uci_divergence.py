@@ -5,6 +5,8 @@ import os
 import torch
 from math import log 
 import matplotlib.pyplot as plt
+import numpy as np
+
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
@@ -203,12 +205,30 @@ def divergences(X, y, Ts, n_max = 1000):
     metrix["joint_wass2_te"] = check_bad(joint_wass2_te).detach().cpu().numpy()
     metrix["joint_wass2_tr"] = check_bad(joint_wass2_tr).detach().cpu().numpy()
 
+    # mean predictive variance
+
+    diff_post_var_te = true_post_var_te.mean(dim=0) - mfvi_post_var_te.mean(dim=0)
+    diff_post_var_tr = true_post_var_tr.mean(dim=0) - mfvi_post_var_tr.mean(dim=0)
+
+    metrix["diff_post_var_te"] = check_bad(diff_post_var_te).detach().cpu().numpy()
+    metrix["diff_post_var_tr"] = check_bad(diff_post_var_tr).detach().cpu().numpy()
+
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-2, 1, 10, dtype=dtype, device=device)
+    n_reps = 10
+
+    T_RANGE_KL = (-1, .5)
+    T_RANGE_ALPHA = (-2, 1)
+    T_RANGE_WASS = (-1, .5)
+    T_RANGE_DIFF = (-1.5, .5)
+
+    tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
+    tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
+
+    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -218,18 +238,30 @@ if __name__ == "__main__":
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
 
-    fig, axes = plt.subplots(9, 3, figsize=(11, 27), constrained_layout=True)
+    fig, axes = plt.subplots(12, 3, figsize=(11, 36), constrained_layout=True)
     axes = axes.ravel()
     axes_top = axes[:9]
     axes_mid = axes[9:18]
-    axes_bot = axes[18:]
+    axes_bot = axes[18:27]
+    axes_last = axes[27:]
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
+
+    mask_kl = (log10Ts_np >= T_RANGE_KL[0]) & (log10Ts_np <= T_RANGE_KL[1])
+    mask_alpha = (log10Ts_np >= T_RANGE_ALPHA[0]) & (log10Ts_np <= T_RANGE_ALPHA[1])
+    mask_wass = (log10Ts_np >= T_RANGE_WASS[0]) & (log10Ts_np <= T_RANGE_WASS[1])
+    mask_diff = (log10Ts_np >= T_RANGE_DIFF[0]) & (log10Ts_np <= T_RANGE_DIFF[1])
+
+    x_kl = log10Ts_np[mask_kl]
+    x_alpha = log10Ts_np[mask_alpha]
+    x_wass = log10Ts_np[mask_wass]
+    x_diff = log10Ts_np[mask_diff]
+
     ax2_first = None
     ax4_first = None
     ax6_first = None
 
-    for ax, axb, axc, dataset in zip(axes_top, axes_mid, axes_bot, datasets):
+    for ax, axb, axc, axd, dataset in zip(axes_top, axes_mid, axes_bot, axes_last, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -237,20 +269,46 @@ if __name__ == "__main__":
         X = torch.tensor(X_df.values, dtype=dtype, device=device)
         y = torch.tensor(y_df.values.squeeze(), dtype=dtype, device=device)
 
-        metrix = divergences(X, y, Ts[:, None])
+        keys = [
+            "fwd_kls_te", "rev_kls_te", "fwd_kls_tr", "rev_kls_tr",
+            "fwd_joint_kl_te", "rev_joint_kl_te", "fwd_joint_kl_tr", "rev_joint_kl_tr",
+            "alpha_te", "alpha_tr", "joint_alpha_te", "joint_alpha_tr",
+            "wass2_te", "wass2_tr", "joint_wass2_te", "joint_wass2_tr",
+            "diff_post_var_te", "diff_post_var_tr",
+        ]
 
-        ax.plot(log10Ts_np, metrix["fwd_kls_te"], label="marg fwd KL te", linestyle="--")
-        ax.plot(log10Ts_np, metrix["rev_kls_te"], label="marg rev KL te", linestyle="--")
-        ax.plot(log10Ts_np, metrix["fwd_kls_tr"], label="marg fwd KL tr", linestyle="--")
-        ax.plot(log10Ts_np, metrix["rev_kls_tr"], label="marg rev KL tr", linestyle="--")
+        reps = {k: [] for k in keys}
+        for _ in range(n_reps):
+            met = divergences(X, y, Ts[:, None])
+            for k in keys:
+                reps[k].append(met[k])
+
+        metrix = {}
+        metrix2 = {}
+        for k in keys:
+            arr = np.stack(reps[k], axis=0)
+            metrix[k] = arr.mean(axis=0)
+            metrix2[k] = 2.0 * arr.std(axis=0)
+
+        for k, lab in [("fwd_kls_te", "marg fwd KL te"), ("rev_kls_te", "marg rev KL te"),
+                       ("fwd_kls_tr", "marg fwd KL tr"), ("rev_kls_tr", "marg rev KL tr")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            ln = ax.plot(x_kl, y0[mask_kl], label=lab, linestyle="--")[0]
+            c0 = ln.get_color()
+            ax.plot(x_kl, (y0 + e0)[mask_kl], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+            ax.plot(x_kl, (y0 - e0)[mask_kl], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
 
         ax2 = ax.twinx()
         if ax2_first is None:
             ax2_first = ax2
-        ax2.plot(log10Ts_np, metrix["fwd_joint_kl_te"], label="joint fwd KL te", color="green")
-        ax2.plot(log10Ts_np, metrix["rev_joint_kl_te"], label="joint rev KL te", color="olive")
-        ax2.plot(log10Ts_np, metrix["fwd_joint_kl_tr"], label="joint fwd KL tr", color="darkgreen")
-        ax2.plot(log10Ts_np, metrix["rev_joint_kl_tr"], label="joint rev KL tr", color="seagreen")
+        for k, lab, col in [("fwd_joint_kl_te", "joint fwd KL te", "green"),
+                            ("rev_joint_kl_te", "joint rev KL te", "olive"),
+                            ("fwd_joint_kl_tr", "joint fwd KL tr", "darkgreen"),
+                            ("rev_joint_kl_tr", "joint rev KL tr", "seagreen")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            ax2.plot(x_kl, y0[mask_kl], label=lab, color=col)
+            ax2.plot(x_kl, (y0 + e0)[mask_kl], color=col, linestyle=":", linewidth=1, label="_nolegend_")
+            ax2.plot(x_kl, (y0 - e0)[mask_kl], color=col, linestyle=":", linewidth=1, label="_nolegend_")
         ax2.set_ylabel("Joint KL")
 
         ax.set_title(dataset)
@@ -258,14 +316,22 @@ if __name__ == "__main__":
         ax.set_ylabel("Marginal KL")
         ax.grid(True, alpha=0.3)
 
-        axb.plot(log10Ts_np, metrix["alpha_te"], label="marg alpha te", linestyle="--")
-        axb.plot(log10Ts_np, metrix["alpha_tr"], label="marg alpha tr", linestyle="--")
+        for k, lab in [("alpha_te", "marg alpha te"), ("alpha_tr", "marg alpha tr")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            ln = axb.plot(x_alpha, y0[mask_alpha], label=lab, linestyle="--")[0]
+            c0 = ln.get_color()
+            axb.plot(x_alpha, (y0 + e0)[mask_alpha], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+            axb.plot(x_alpha, (y0 - e0)[mask_alpha], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
 
         axb2 = axb.twinx()
         if ax4_first is None:
             ax4_first = axb2
-        axb2.plot(log10Ts_np, metrix["joint_alpha_te"], label="joint alpha te", color="green")
-        axb2.plot(log10Ts_np, metrix["joint_alpha_tr"], label="joint alpha tr", color="darkgreen")
+        for k, lab, col in [("joint_alpha_te", "joint alpha te", "green"),
+                            ("joint_alpha_tr", "joint alpha tr", "darkgreen")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            axb2.plot(x_alpha, y0[mask_alpha], label=lab, color=col)
+            axb2.plot(x_alpha, (y0 + e0)[mask_alpha], color=col, linestyle=":", linewidth=1, label="_nolegend_")
+            axb2.plot(x_alpha, (y0 - e0)[mask_alpha], color=col, linestyle=":", linewidth=1, label="_nolegend_")
         axb2.set_ylabel("Joint alpha")
 
         axb.set_title(dataset)
@@ -273,14 +339,22 @@ if __name__ == "__main__":
         axb.set_ylabel("Marginal alpha")
         axb.grid(True, alpha=0.3)
 
-        axc.plot(log10Ts_np, metrix["wass2_te"], label="marg wass2 te", linestyle="--")
-        axc.plot(log10Ts_np, metrix["wass2_tr"], label="marg wass2 tr", linestyle="--")
+        for k, lab in [("wass2_te", "marg wass2 te"), ("wass2_tr", "marg wass2 tr")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            ln = axc.plot(x_wass, y0[mask_wass], label=lab, linestyle="--")[0]
+            c0 = ln.get_color()
+            axc.plot(x_wass, (y0 + e0)[mask_wass], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+            axc.plot(x_wass, (y0 - e0)[mask_wass], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
 
         axc2 = axc.twinx()
         if ax6_first is None:
             ax6_first = axc2
-        axc2.plot(log10Ts_np, metrix["joint_wass2_te"], label="joint wass2 te", color="green")
-        axc2.plot(log10Ts_np, metrix["joint_wass2_tr"], label="joint wass2 tr", color="darkgreen")
+        for k, lab, col in [("joint_wass2_te", "joint wass2 te", "green"),
+                            ("joint_wass2_tr", "joint wass2 tr", "darkgreen")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            axc2.plot(x_wass, y0[mask_wass], label=lab, color=col)
+            axc2.plot(x_wass, (y0 + e0)[mask_wass], color=col, linestyle=":", linewidth=1, label="_nolegend_")
+            axc2.plot(x_wass, (y0 - e0)[mask_wass], color=col, linestyle=":", linewidth=1, label="_nolegend_")
         axc2.set_ylabel("Joint wass2")
 
         axc.set_title(dataset)
@@ -288,16 +362,31 @@ if __name__ == "__main__":
         axc.set_ylabel("Marginal wass2")
         axc.grid(True, alpha=0.3)
 
+        for k, lab in [("diff_post_var_te", "diff post var te"), ("diff_post_var_tr", "diff post var tr")]:
+            y0 = metrix[k]; e0 = metrix2[k]
+            ln = axd.plot(x_diff, y0[mask_diff], label=lab, linestyle="--")[0]
+            c0 = ln.get_color()
+            axd.plot(x_diff, (y0 + e0)[mask_diff], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+            axd.plot(x_diff, (y0 - e0)[mask_diff], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+
+        axd.set_title(dataset)
+        axd.set_xlabel(r"$\log_{10}(T)$")
+        axd.set_ylabel("Diff mean post var")
+        axd.grid(True, alpha=0.3)
+
     handles1, labels1 = axes_top[0].get_legend_handles_labels()
     handles2, labels2 = ax2_first.get_legend_handles_labels()
     handles3, labels3 = axes_mid[0].get_legend_handles_labels()
     handles4, labels4 = ax4_first.get_legend_handles_labels()
     handles5, labels5 = axes_bot[0].get_legend_handles_labels()
     handles6, labels6 = ax6_first.get_legend_handles_labels()
-    fig.legend(handles1 + handles2 + handles3 + handles4 + handles5 + handles6, labels1 + labels2 + labels3 + labels4 + labels5 + labels6,
+    handles7, labels7 = axes_last[0].get_legend_handles_labels()
+    fig.legend(handles1 + handles2 + handles3 + handles4 + handles5 + handles6 + handles7, labels1 + labels2 + labels3 + labels4 + labels5 + labels6 + labels7,
             loc="outside lower center",
             ncol=4,
             frameon=False)
+
+
 
 
 
