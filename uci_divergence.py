@@ -115,31 +115,70 @@ def divergences(X, y, Ts, n_max = 1000):
     sig_true_tr = X_tr @ Sigma @ X_tr.T + noise_std**2 * torch.eye(n_tr).to(X)
     sig_mfvi_tr = Ts[..., None] * (X_tr @ torch.diag(S_opt) @ X_tr.T)[None, ...] + noise_std**2 * torch.eye(n_tr)[None, ...].to(X)
 
-    # log det A = 2* log det L(A), det tri is prod of diag
+    # log det A = 2 * log det L(A), det tri is prod of diag
     sig_true_te_L = torch.linalg.cholesky(sig_true_te); sig_true_te_logdet = 2.0 * torch.log(torch.diagonal(sig_true_te_L, dim1=-2, dim2=-1)).sum(-1)
     sig_true_tr_L = torch.linalg.cholesky(sig_true_tr); sig_true_tr_logdet = 2.0 * torch.log(torch.diagonal(sig_true_tr_L, dim1=-2, dim2=-1)).sum(-1)
 
     sig_mfvi_te_L = torch.linalg.cholesky(sig_mfvi_te); sig_mfvi_te_logdet = 2.0 * torch.log(torch.diagonal(sig_mfvi_te_L, dim1=-2, dim2=-1)).sum(-1)
     sig_mfvi_tr_L = torch.linalg.cholesky(sig_mfvi_tr); sig_mfvi_tr_logdet = 2.0 * torch.log(torch.diagonal(sig_mfvi_tr_L, dim1=-2, dim2=-1)).sum(-1)
 
-    # LL'X=B, solve for X =arg(tr)
-    fwd_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_te[None, ...].expand_as(sig_mfvi_te), sig_mfvi_te_L), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_mfvi_te_logdet - sig_true_te_logdet))
-    rev_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_te, sig_true_te_L[None, ...].expand_as(sig_mfvi_te_L)), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_true_te_logdet - sig_mfvi_te_logdet))
+    # LL'X=B, solve for X = arg(tr)
+    fwd_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_te[None, ...], sig_mfvi_te_L), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_mfvi_te_logdet - sig_true_te_logdet))
+    rev_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_te, sig_true_te_L[None, ...]), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_true_te_logdet - sig_mfvi_te_logdet))
 
-    fwd_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_tr[None, ...].expand_as(sig_mfvi_tr), sig_mfvi_tr_L), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_mfvi_tr_logdet - sig_true_tr_logdet))
-    rev_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_tr, sig_true_tr_L[None, ...].expand_as(sig_mfvi_tr_L)), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_true_tr_logdet - sig_mfvi_tr_logdet))
+    fwd_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_tr[None, ...], sig_mfvi_tr_L), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_mfvi_tr_logdet - sig_true_tr_logdet))
+    rev_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_tr, sig_true_tr_L[None, ...]), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_true_tr_logdet - sig_mfvi_tr_logdet))
 
     metrix["fwd_joint_kl_te"] = check_bad(fwd_joint_kl_te).detach().cpu().numpy()
     metrix["rev_joint_kl_te"] = check_bad(rev_joint_kl_te).detach().cpu().numpy()
     metrix["fwd_joint_kl_tr"] = check_bad(fwd_joint_kl_tr).detach().cpu().numpy()
     metrix["rev_joint_kl_tr"] = check_bad(rev_joint_kl_tr).detach().cpu().numpy()
 
+
+    # alpha div @ α = 0.5 (= 4 sq Hellinger and symmetric) 
+
+    # marginals
+
+    hell_sq_tr = 1 - (true_post_var_tr * mfvi_post_var_tr) ** 0.25 / ((true_post_var_tr + mfvi_post_var_tr) / 2) ** 0.5
+    hell_sq_te = 1 - (true_post_var_te * mfvi_post_var_te) ** 0.25 / ((true_post_var_te + mfvi_post_var_te) / 2) ** 0.5
+
+    metrix["alpha_tr"] = check_bad(torch.mean(4 * hell_sq_tr, dim=0)).detach().cpu().numpy()
+    metrix["alpha_te"] = check_bad(torch.mean(4 * hell_sq_te, dim=0)).detach().cpu().numpy()
+
+    # hybrid marginally (do I want this or do I actually want the average accross data, not joint indep?)
+
+    # marg_sig_true_te_logdet = torch.log(true_post_var_te).sum(dim=0)
+    # marg_sig_true_tr_logdet = torch.log(true_post_var_tr).sum(dim=0)
+    # marg_sig_mfvi_te_logdet = torch.log(mfvi_post_var_te).sum(dim=0)
+    # marg_sig_mfvi_tr_logdet = torch.log(mfvi_post_var_tr).sum(dim=0)
+
+    # marg_sig_sum_tr_logdet = torch.log((true_post_var_tr + mfvi_post_var_tr) / 2).sum(dim=0)
+    # marg_sig_sum_te_logdet = torch.log((true_post_var_te + mfvi_post_var_te) / 2).sum(dim=0)
+
+    # hell_sq_tr = 1 - torch.exp(0.25 * (marg_sig_true_tr_logdet + marg_sig_mfvi_tr_logdet) - 0.5 * marg_sig_sum_tr_logdet)
+    # hell_sq_te = 1 - torch.exp(0.25 * (marg_sig_true_te_logdet + marg_sig_mfvi_te_logdet) - 0.5 * marg_sig_sum_te_logdet)
+
+
+    # metrix["alpha_tr"] = check_bad(4 * hell_sq_tr).detach().cpu().numpy()
+    # metrix["alpha_te"] = check_bad(4 * hell_sq_te).detach().cpu().numpy()
+
+    # jointly (can re-use dets from KLs) 
+
+    sig_sum_tr_L = torch.linalg.cholesky((sig_true_tr + sig_mfvi_tr) / 2); sig_sum_tr_logdet = 2 * torch.log(torch.diagonal(sig_sum_tr_L, dim1=1, dim2=2)).sum(dim=-1)
+    sig_sum_te_L = torch.linalg.cholesky((sig_true_te + sig_mfvi_te) / 2); sig_sum_te_logdet = 2 * torch.log(torch.diagonal(sig_sum_te_L, dim1=1, dim2=2)).sum(dim=-1)
+
+    joint_hell_sq_tr = 1 - torch.exp(0.25 * (sig_true_tr_logdet + sig_mfvi_tr_logdet) - 0.5 * sig_sum_tr_logdet)
+    joint_hell_sq_te = 1 - torch.exp(0.25 * (sig_true_te_logdet + sig_mfvi_te_logdet) - 0.5 * sig_sum_te_logdet)
+
+    metrix["joint_alpha_tr"] = check_bad(4 * joint_hell_sq_tr).detach().cpu().numpy()
+    metrix["joint_alpha_te"] = check_bad(4 * joint_hell_sq_te).detach().cpu().numpy()
+
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-1.5, 0.5, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(-2, 1, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -149,13 +188,16 @@ if __name__ == "__main__":
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
 
-    fig, axes = plt.subplots(3, 3, figsize=(11, 9), constrained_layout=True)
+    fig, axes = plt.subplots(6, 3, figsize=(11, 18), constrained_layout=True)
     axes = axes.ravel()
+    axes_top = axes[:9]
+    axes_bot = axes[9:]
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
     ax2_first = None
+    ax4_first = None
 
-    for ax, dataset in zip(axes, datasets):
+    for ax, axb, dataset in zip(axes_top, axes_bot, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -184,12 +226,30 @@ if __name__ == "__main__":
         ax.set_ylabel("Marginal KL")
         ax.grid(True, alpha=0.3)
 
-    handles1, labels1 = axes[0].get_legend_handles_labels()
+        axb.plot(log10Ts_np, metrix["alpha_te"], label="marg alpha te", linestyle="--")
+        axb.plot(log10Ts_np, metrix["alpha_tr"], label="marg alpha tr", linestyle="--")
+
+        axb2 = axb.twinx()
+        if ax4_first is None:
+            ax4_first = axb2
+        axb2.plot(log10Ts_np, metrix["joint_alpha_te"], label="joint alpha te", color="green")
+        axb2.plot(log10Ts_np, metrix["joint_alpha_tr"], label="joint alpha tr", color="darkgreen")
+        axb2.set_ylabel("Joint alpha")
+
+        axb.set_title(dataset)
+        axb.set_xlabel(r"$\log_{10}(T)$")
+        axb.set_ylabel("Marginal alpha")
+        axb.grid(True, alpha=0.3)
+
+    handles1, labels1 = axes_top[0].get_legend_handles_labels()
     handles2, labels2 = ax2_first.get_legend_handles_labels()
-    fig.legend(handles1 + handles2, labels1 + labels2,
-               loc="outside lower center",
-               ncol=4,
-               frameon=False)
+    handles3, labels3 = axes_bot[0].get_legend_handles_labels()
+    handles4, labels4 = ax4_first.get_legend_handles_labels()
+    fig.legend(handles1 + handles2 + handles3 + handles4, labels1 + labels2 + labels3 + labels4,
+            loc="outside lower center",
+            ncol=4,
+            frameon=False)
+
 
     fig.suptitle(f"basis: {BASIS}")
 
