@@ -23,7 +23,7 @@ P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -158,7 +158,6 @@ def divergences(X, y, Ts, n_max = 1000):
     # hell_sq_tr = 1 - torch.exp(0.25 * (marg_sig_true_tr_logdet + marg_sig_mfvi_tr_logdet) - 0.5 * marg_sig_sum_tr_logdet)
     # hell_sq_te = 1 - torch.exp(0.25 * (marg_sig_true_te_logdet + marg_sig_mfvi_te_logdet) - 0.5 * marg_sig_sum_te_logdet)
 
-
     # metrix["alpha_tr"] = check_bad(4 * hell_sq_tr).detach().cpu().numpy()
     # metrix["alpha_te"] = check_bad(4 * hell_sq_te).detach().cpu().numpy()
 
@@ -173,12 +172,43 @@ def divergences(X, y, Ts, n_max = 1000):
     metrix["joint_alpha_tr"] = check_bad(4 * joint_hell_sq_tr).detach().cpu().numpy()
     metrix["joint_alpha_te"] = check_bad(4 * joint_hell_sq_te).detach().cpu().numpy()
 
+    # 2-Wasserstein
+
+    # marginals (avgerage)
+
+    wass2_tr = true_post_var_tr + mfvi_post_var_tr - 2 * (true_post_var_tr * mfvi_post_var_tr) ** 0.5
+    wass2_te = true_post_var_te + mfvi_post_var_te - 2 * (true_post_var_te * mfvi_post_var_te) ** 0.5
+
+    metrix["wass2_tr"] = check_bad(torch.mean(wass2_tr, dim=0)).detach().cpu().numpy()
+    metrix["wass2_te"] = check_bad(torch.mean(wass2_te, dim=0)).detach().cpu().numpy()
+
+    # joint
+
+    D, V = torch.linalg.eigh(sig_true_te)
+    sig_true_te_sqrt = V @ torch.diag_embed(D).sqrt() @ torch.transpose(V, -1, -2)
+    D, V = torch.linalg.eigh(sig_true_tr)
+    sig_true_tr_sqrt = V @ torch.diag_embed(D).sqrt() @ torch.transpose(V, -1, -2)
+
+
+    A = sig_true_te_sqrt @ sig_mfvi_te @ sig_true_te_sqrt
+    D, V = torch.linalg.eigh(A)
+    A_sqrt = V @ torch.diag_embed(D).sqrt() @ torch.transpose(V, -1, -2)
+    joint_wass2_te = torch.diagonal(sig_true_te + sig_mfvi_te - 2 *  A_sqrt, dim1=1, dim2=2).sum(dim=-1)
+
+    A = sig_true_tr_sqrt @ sig_mfvi_tr @ sig_true_tr_sqrt
+    D, V = torch.linalg.eigh(A)
+    A_sqrt = V @ torch.diag_embed(D).sqrt() @ torch.transpose(V, -1, -2)
+    joint_wass2_tr = torch.diagonal(sig_true_tr + sig_mfvi_tr - 2 *  A_sqrt, dim1=1, dim2=2).sum(dim=-1)
+
+    metrix["joint_wass2_te"] = check_bad(joint_wass2_te).detach().cpu().numpy()
+    metrix["joint_wass2_tr"] = check_bad(joint_wass2_tr).detach().cpu().numpy()
+
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-2, 1, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(-2, 1, 10, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -188,16 +218,18 @@ if __name__ == "__main__":
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
 
-    fig, axes = plt.subplots(6, 3, figsize=(11, 18), constrained_layout=True)
+    fig, axes = plt.subplots(9, 3, figsize=(11, 27), constrained_layout=True)
     axes = axes.ravel()
     axes_top = axes[:9]
-    axes_bot = axes[9:]
+    axes_mid = axes[9:18]
+    axes_bot = axes[18:]
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
     ax2_first = None
     ax4_first = None
+    ax6_first = None
 
-    for ax, axb, dataset in zip(axes_top, axes_bot, datasets):
+    for ax, axb, axc, dataset in zip(axes_top, axes_mid, axes_bot, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -241,14 +273,32 @@ if __name__ == "__main__":
         axb.set_ylabel("Marginal alpha")
         axb.grid(True, alpha=0.3)
 
+        axc.plot(log10Ts_np, metrix["wass2_te"], label="marg wass2 te", linestyle="--")
+        axc.plot(log10Ts_np, metrix["wass2_tr"], label="marg wass2 tr", linestyle="--")
+
+        axc2 = axc.twinx()
+        if ax6_first is None:
+            ax6_first = axc2
+        axc2.plot(log10Ts_np, metrix["joint_wass2_te"], label="joint wass2 te", color="green")
+        axc2.plot(log10Ts_np, metrix["joint_wass2_tr"], label="joint wass2 tr", color="darkgreen")
+        axc2.set_ylabel("Joint wass2")
+
+        axc.set_title(dataset)
+        axc.set_xlabel(r"$\log_{10}(T)$")
+        axc.set_ylabel("Marginal wass2")
+        axc.grid(True, alpha=0.3)
+
     handles1, labels1 = axes_top[0].get_legend_handles_labels()
     handles2, labels2 = ax2_first.get_legend_handles_labels()
-    handles3, labels3 = axes_bot[0].get_legend_handles_labels()
+    handles3, labels3 = axes_mid[0].get_legend_handles_labels()
     handles4, labels4 = ax4_first.get_legend_handles_labels()
-    fig.legend(handles1 + handles2 + handles3 + handles4, labels1 + labels2 + labels3 + labels4,
+    handles5, labels5 = axes_bot[0].get_legend_handles_labels()
+    handles6, labels6 = ax6_first.get_legend_handles_labels()
+    fig.legend(handles1 + handles2 + handles3 + handles4 + handles5 + handles6, labels1 + labels2 + labels3 + labels4 + labels5 + labels6,
             loc="outside lower center",
             ncol=4,
             frameon=False)
+
 
 
     fig.suptitle(f"basis: {BASIS}")
