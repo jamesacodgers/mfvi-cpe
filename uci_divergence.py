@@ -10,6 +10,7 @@ from src.utils import set_seeds
 from src.UCI_data import load_dataset
 from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
 from src.basis_functions import apply_basis
+from src.utils import check_bad
 
 
 dtype = torch.float64
@@ -103,33 +104,42 @@ def divergences(X, y, Ts, n_max = 1000):
     fwd_kls_tr = 0.5 * torch.log(mfvi_post_var_tr / true_post_var_tr) + 0.5 * true_post_var_tr / mfvi_post_var_tr - 0.5
     rev_kls_tr = 0.5 * torch.log(true_post_var_tr / mfvi_post_var_tr) + 0.5 * mfvi_post_var_tr / true_post_var_tr - 0.5
 
-    metrix["fwd_kls_te"] = torch.mean(fwd_kls_te, dim=0).detach().cpu().numpy()
-    metrix["rev_kls_te"] = torch.mean(rev_kls_te, dim=0).detach().cpu().numpy()
-    metrix["fwd_kls_tr"] = torch.mean(fwd_kls_tr, dim=0).detach().cpu().numpy()
-    metrix["rev_kls_tr"] = torch.mean(rev_kls_tr, dim=0).detach().cpu().numpy()
+    metrix["fwd_kls_te"] = check_bad(torch.mean(fwd_kls_te, dim=0)).detach().cpu().numpy()
+    metrix["rev_kls_te"] = check_bad(torch.mean(rev_kls_te, dim=0)).detach().cpu().numpy()
+    metrix["fwd_kls_tr"] = check_bad(torch.mean(fwd_kls_tr, dim=0)).detach().cpu().numpy()
+    metrix["rev_kls_tr"] = check_bad(torch.mean(rev_kls_tr, dim=0)).detach().cpu().numpy()
 
+    # joint kl
+    sig_true_te = X_te @ Sigma @ X_te.T + noise_std**2 * torch.eye(n_te).to(X)
+    sig_mfvi_te = Ts[..., None] * (X_te @ torch.diag(S_opt) @ X_te.T)[None, ...] + noise_std**2 * torch.eye(n_te)[None, ...].to(X)
+    sig_true_tr = X_tr @ Sigma @ X_tr.T + noise_std**2 * torch.eye(n_tr).to(X)
+    sig_mfvi_tr = Ts[..., None] * (X_tr @ torch.diag(S_opt) @ X_tr.T)[None, ...] + noise_std**2 * torch.eye(n_tr)[None, ...].to(X)
 
-    sig_true_te = X_te @ Sigma @ X_te.T + noise_std**2 * torch.eye(n_te).to(X); sig_true_te_inv = torch.linalg.inv(sig_true_te); sig_true_te_det = torch.det(sig_true_te)
-    sig_mfvi_te = Ts[..., None] * (X_te @ torch.diag(S_opt) @ X_te.T)[None, ...] + noise_std**2 * torch.eye(n_te)[None, ...].to(X); sig_mfvi_te_inv = torch.linalg.inv(sig_mfvi_te); sig_mfvi_te_det = torch.det(sig_mfvi_te)
-    sig_true_tr = X_tr @ Sigma @ X_tr.T + noise_std**2 * torch.eye(n_tr).to(X); sig_true_tr_inv = torch.linalg.inv(sig_true_tr); sig_true_tr_det = torch.det(sig_true_tr)
-    sig_mfvi_tr = Ts[..., None] * (X_tr @ torch.diag(S_opt) @ X_tr.T)[None, ...] + noise_std**2 * torch.eye(n_tr)[None, ...].to(X); sig_mfvi_tr_inv = torch.linalg.inv(sig_mfvi_tr); sig_mfvi_tr_det = torch.det(sig_mfvi_tr)
+    # log det A = 2* log det L(A), det tri is prod of diag
+    sig_true_te_L = torch.linalg.cholesky(sig_true_te); sig_true_te_logdet = 2.0 * torch.log(torch.diagonal(sig_true_te_L, dim1=-2, dim2=-1)).sum(-1)
+    sig_true_tr_L = torch.linalg.cholesky(sig_true_tr); sig_true_tr_logdet = 2.0 * torch.log(torch.diagonal(sig_true_tr_L, dim1=-2, dim2=-1)).sum(-1)
 
-    fwd_joint_kl_te = 0.5 * (torch.diagonal(sig_mfvi_te_inv@sig_true_te, dim1=1, dim2=2).sum(-1) - n_te + torch.log(sig_mfvi_te_det/sig_true_te_det))
-    rev_joint_kl_te = 0.5 * (torch.diagonal(sig_true_te_inv@sig_mfvi_te, dim1=1, dim2=2).sum(-1) - n_te + torch.log(sig_true_te_det/sig_mfvi_te_det))
-    fwd_joint_kl_tr = 0.5 * (torch.diagonal(sig_mfvi_tr_inv@sig_true_tr, dim1=1, dim2=2).sum(-1) - n_tr + torch.log(sig_mfvi_tr_det/sig_true_tr_det))
-    rev_joint_kl_tr = 0.5 * (torch.diagonal(sig_true_tr_inv@sig_mfvi_tr, dim1=1, dim2=2).sum(-1) - n_tr + torch.log(sig_true_tr_det/sig_mfvi_tr_det))
+    sig_mfvi_te_L = torch.linalg.cholesky(sig_mfvi_te); sig_mfvi_te_logdet = 2.0 * torch.log(torch.diagonal(sig_mfvi_te_L, dim1=-2, dim2=-1)).sum(-1)
+    sig_mfvi_tr_L = torch.linalg.cholesky(sig_mfvi_tr); sig_mfvi_tr_logdet = 2.0 * torch.log(torch.diagonal(sig_mfvi_tr_L, dim1=-2, dim2=-1)).sum(-1)
 
-    metrix["fwd_joint_kl_te"] = fwd_joint_kl_te.detach().cpu().numpy()
-    metrix["rev_joint_kl_te"] = rev_joint_kl_te.detach().cpu().numpy()
-    metrix["fwd_joint_kl_tr"] = fwd_joint_kl_tr.detach().cpu().numpy()
-    metrix["rev_joint_kl_tr"] = rev_joint_kl_tr.detach().cpu().numpy()
+    # LL'X=B, solve for X =arg(tr)
+    fwd_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_te[None, ...].expand_as(sig_mfvi_te), sig_mfvi_te_L), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_mfvi_te_logdet - sig_true_te_logdet))
+    rev_joint_kl_te = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_te, sig_true_te_L[None, ...].expand_as(sig_mfvi_te_L)), dim1=-2, dim2=-1).sum(-1) - n_te + (sig_true_te_logdet - sig_mfvi_te_logdet))
+
+    fwd_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_true_tr[None, ...].expand_as(sig_mfvi_tr), sig_mfvi_tr_L), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_mfvi_tr_logdet - sig_true_tr_logdet))
+    rev_joint_kl_tr = 0.5 * (torch.diagonal(torch.cholesky_solve(sig_mfvi_tr, sig_true_tr_L[None, ...].expand_as(sig_mfvi_tr_L)), dim1=-2, dim2=-1).sum(-1) - n_tr + (sig_true_tr_logdet - sig_mfvi_tr_logdet))
+
+    metrix["fwd_joint_kl_te"] = check_bad(fwd_joint_kl_te).detach().cpu().numpy()
+    metrix["rev_joint_kl_te"] = check_bad(rev_joint_kl_te).detach().cpu().numpy()
+    metrix["fwd_joint_kl_tr"] = check_bad(fwd_joint_kl_tr).detach().cpu().numpy()
+    metrix["rev_joint_kl_tr"] = check_bad(rev_joint_kl_tr).detach().cpu().numpy()
 
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    Ts = 10 ** torch.linspace(-3, 3, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(-1.5, 0.5, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
