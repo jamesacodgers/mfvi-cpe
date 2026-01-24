@@ -11,3 +11,4 @@ pandas
 ivon-opt
 openpyxl
 openml
+tueplots
