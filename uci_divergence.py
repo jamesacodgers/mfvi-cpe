@@ -210,15 +210,15 @@ def divergences(X, y, Ts, n_max = 1000):
     diff_post_var_te = true_post_var_te.mean(dim=0) - mfvi_post_var_te.mean(dim=0)
     diff_post_var_tr = true_post_var_tr.mean(dim=0) - mfvi_post_var_tr.mean(dim=0)
 
-    metrix["diff_post_var_te"] = check_bad(diff_post_var_te).detach().cpu().numpy()
-    metrix["diff_post_var_tr"] = check_bad(diff_post_var_tr).detach().cpu().numpy()
+    metrix["sq_diff_post_var_te"] = check_bad(diff_post_var_te**2).detach().cpu().numpy()
+    metrix["sq_diff_post_var_tr"] = check_bad(diff_post_var_tr**2).detach().cpu().numpy()
 
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    n_reps = 10
+    n_reps = 5
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
@@ -228,7 +228,7 @@ if __name__ == "__main__":
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -238,12 +238,21 @@ if __name__ == "__main__":
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
 
-    fig, axes = plt.subplots(12, 3, figsize=(11, 36), constrained_layout=True)
-    axes = axes.ravel()
-    axes_top = axes[:9]
-    axes_mid = axes[9:18]
-    axes_bot = axes[18:27]
-    axes_last = axes[27:]
+    # color structure: te one color, tr one color (everywhere)
+    COL_TE = "tab:blue"
+    COL_TR = "tab:orange"
+
+    fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+    fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+    fig_alpha, axes_mid = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+    fig_wass, axes_bot = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+    fig_diff, axes_last = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+
+    axes_kl_fwd = axes_kl_fwd.ravel()
+    axes_kl_rev = axes_kl_rev.ravel()
+    axes_mid = axes_mid.ravel()
+    axes_bot = axes_bot.ravel()
+    axes_last = axes_last.ravel()
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
 
@@ -257,11 +266,12 @@ if __name__ == "__main__":
     x_wass = log10Ts_np[mask_wass]
     x_diff = log10Ts_np[mask_diff]
 
-    ax2_first = None
+    ax2_first_fwd = None
+    ax2_first_rev = None
     ax4_first = None
     ax6_first = None
 
-    for ax, axb, axc, axd, dataset in zip(axes_top, axes_mid, axes_bot, axes_last, datasets):
+    for axf, axr, axb, axc, axd, dataset in zip(axes_kl_fwd, axes_kl_rev, axes_mid, axes_bot, axes_last, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -274,7 +284,7 @@ if __name__ == "__main__":
             "fwd_joint_kl_te", "rev_joint_kl_te", "fwd_joint_kl_tr", "rev_joint_kl_tr",
             "alpha_te", "alpha_tr", "joint_alpha_te", "joint_alpha_tr",
             "wass2_te", "wass2_tr", "joint_wass2_te", "joint_wass2_tr",
-            "diff_post_var_te", "diff_post_var_tr",
+            "sq_diff_post_var_te", "sq_diff_post_var_tr",
         ]
 
         reps = {k: [] for k in keys}
@@ -290,117 +300,182 @@ if __name__ == "__main__":
             metrix[k] = arr.mean(axis=0)
             metrix2[k] = 2.0 * arr.std(axis=0)
 
-        for k, lab in [("fwd_kls_te", "marg fwd KL te"), ("rev_kls_te", "marg rev KL te"),
-                       ("fwd_kls_tr", "marg fwd KL tr"), ("rev_kls_tr", "marg rev KL tr")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            ln = ax.plot(x_kl, y0[mask_kl], label=lab, linestyle="--")[0]
-            c0 = ln.get_color()
-            ax.plot(x_kl, (y0 + e0)[mask_kl], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
-            ax.plot(x_kl, (y0 - e0)[mask_kl], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+        # ---------- KL (forward) ----------
+        for k, lab, col in [("fwd_kls_te", "marg fwd KL te", COL_TE),
+                            ("fwd_kls_tr", "marg fwd KL tr", COL_TR)]:
+            y0 = metrix[k][mask_kl]
+            ln = axf.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
+            axf.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
-        ax2 = ax.twinx()
-        if ax2_first is None:
-            ax2_first = ax2
-        for k, lab, col in [("fwd_joint_kl_te", "joint fwd KL te", "green"),
-                            ("rev_joint_kl_te", "joint rev KL te", "olive"),
-                            ("fwd_joint_kl_tr", "joint fwd KL tr", "darkgreen"),
-                            ("rev_joint_kl_tr", "joint rev KL tr", "seagreen")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            ax2.plot(x_kl, y0[mask_kl], label=lab, color=col)
-            ax2.plot(x_kl, (y0 + e0)[mask_kl], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-            ax2.plot(x_kl, (y0 - e0)[mask_kl], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-        ax2.set_ylabel("Joint KL")
+        axf2 = axf.twinx()
+        if ax2_first_fwd is None:
+            ax2_first_fwd = axf2
 
-        ax.set_title(dataset)
-        ax.set_xlabel(r"$\log_{10}(T)$")
-        ax.set_ylabel("Marginal KL")
-        ax.grid(True, alpha=0.3)
+        for k, lab, col in [("fwd_joint_kl_te", "joint fwd KL te", COL_TE),
+                            ("fwd_joint_kl_tr", "joint fwd KL tr", COL_TR)]:
+            y0 = metrix[k][mask_kl]
+            ln = axf2.plot(x_kl, y0, label=lab, color=col)[0]
+            axf2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
-        for k, lab in [("alpha_te", "marg alpha te"), ("alpha_tr", "marg alpha tr")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            ln = axb.plot(x_alpha, y0[mask_alpha], label=lab, linestyle="--")[0]
-            c0 = ln.get_color()
-            axb.plot(x_alpha, (y0 + e0)[mask_alpha], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
-            axb.plot(x_alpha, (y0 - e0)[mask_alpha], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+        axf.set_title(dataset)
+        axf.set_xlabel(r"$\log_{10}(T)$")
+        axf.set_ylabel("Marginal KL")
+        axf.grid(True, alpha=0.3)
+        axf2.set_ylabel("Joint KL")
+
+        # ---------- KL (reverse) ----------
+        for k, lab, col in [("rev_kls_te", "marg rev KL te", COL_TE),
+                            ("rev_kls_tr", "marg rev KL tr", COL_TR)]:
+            y0 = metrix[k][mask_kl]
+            ln = axr.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
+            axr.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+
+        axr2 = axr.twinx()
+        if ax2_first_rev is None:
+            ax2_first_rev = axr2
+
+        for k, lab, col in [("rev_joint_kl_te", "joint rev KL te", COL_TE),
+                            ("rev_joint_kl_tr", "joint rev KL tr", COL_TR)]:
+            y0 = metrix[k][mask_kl]
+            ln = axr2.plot(x_kl, y0, label=lab, color=col)[0]
+            axr2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+
+        axr.set_title(dataset)
+        axr.set_xlabel(r"$\log_{10}(T)$")
+        axr.set_ylabel("Marginal KL")
+        axr.grid(True, alpha=0.3)
+        axr2.set_ylabel("Joint KL")
+
+        # ---------- Alpha ----------
+        for k, lab, col in [("alpha_te", "marg alpha te", COL_TE),
+                            ("alpha_tr", "marg alpha tr", COL_TR)]:
+            y0 = metrix[k][mask_alpha]
+            ln = axb.plot(x_alpha, y0, label=lab, linestyle="--", color=col)[0]
+            axb.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axb2 = axb.twinx()
         if ax4_first is None:
             ax4_first = axb2
-        for k, lab, col in [("joint_alpha_te", "joint alpha te", "green"),
-                            ("joint_alpha_tr", "joint alpha tr", "darkgreen")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            axb2.plot(x_alpha, y0[mask_alpha], label=lab, color=col)
-            axb2.plot(x_alpha, (y0 + e0)[mask_alpha], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-            axb2.plot(x_alpha, (y0 - e0)[mask_alpha], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-        axb2.set_ylabel("Joint alpha")
+
+        for k, lab, col in [("joint_alpha_te", "joint alpha te", COL_TE),
+                            ("joint_alpha_tr", "joint alpha tr", COL_TR)]:
+            y0 = metrix[k][mask_alpha]
+            ln = axb2.plot(x_alpha, y0, label=lab, color=col)[0]
+            axb2.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axb.set_title(dataset)
         axb.set_xlabel(r"$\log_{10}(T)$")
         axb.set_ylabel("Marginal alpha")
         axb.grid(True, alpha=0.3)
+        axb2.set_ylabel("Joint alpha")
 
-        for k, lab in [("wass2_te", "marg wass2 te"), ("wass2_tr", "marg wass2 tr")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            ln = axc.plot(x_wass, y0[mask_wass], label=lab, linestyle="--")[0]
-            c0 = ln.get_color()
-            axc.plot(x_wass, (y0 + e0)[mask_wass], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
-            axc.plot(x_wass, (y0 - e0)[mask_wass], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+        # ---------- Wasserstein ----------
+        for k, lab, col in [("wass2_te", "marg wass2 te", COL_TE),
+                            ("wass2_tr", "marg wass2 tr", COL_TR)]:
+            y0 = metrix[k][mask_wass]
+            ln = axc.plot(x_wass, y0, label=lab, linestyle="--", color=col)[0]
+            axc.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axc2 = axc.twinx()
         if ax6_first is None:
             ax6_first = axc2
-        for k, lab, col in [("joint_wass2_te", "joint wass2 te", "green"),
-                            ("joint_wass2_tr", "joint wass2 tr", "darkgreen")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            axc2.plot(x_wass, y0[mask_wass], label=lab, color=col)
-            axc2.plot(x_wass, (y0 + e0)[mask_wass], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-            axc2.plot(x_wass, (y0 - e0)[mask_wass], color=col, linestyle=":", linewidth=1, label="_nolegend_")
-        axc2.set_ylabel("Joint wass2")
+
+        for k, lab, col in [("joint_wass2_te", "joint wass2 te", COL_TE),
+                            ("joint_wass2_tr", "joint wass2 tr", COL_TR)]:
+            y0 = metrix[k][mask_wass]
+            ln = axc2.plot(x_wass, y0, label=lab, color=col)[0]
+            axc2.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axc.set_title(dataset)
         axc.set_xlabel(r"$\log_{10}(T)$")
         axc.set_ylabel("Marginal wass2")
         axc.grid(True, alpha=0.3)
+        axc2.set_ylabel("Joint wass2")
 
-        for k, lab in [("diff_post_var_te", "diff post var te"), ("diff_post_var_tr", "diff post var tr")]:
-            y0 = metrix[k]; e0 = metrix2[k]
-            ln = axd.plot(x_diff, y0[mask_diff], label=lab, linestyle="--")[0]
-            c0 = ln.get_color()
-            axd.plot(x_diff, (y0 + e0)[mask_diff], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
-            axd.plot(x_diff, (y0 - e0)[mask_diff], color=c0, linestyle=":", linewidth=1, label="_nolegend_")
+        # ---------- Diff ----------
+        for k, lab, col in [("sq_diff_post_var_te", "diff² post var te", COL_TE),
+                            ("sq_diff_post_var_tr", "diff² post var tr", COL_TR)]:
+            y0 = metrix[k][mask_diff]
+            ln = axd.plot(x_diff, y0, label=lab, linestyle="--", color=col)[0]
+            axd.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axd.set_title(dataset)
         axd.set_xlabel(r"$\log_{10}(T)$")
-        axd.set_ylabel("Diff mean post var")
+        axd.set_ylabel("Diff² mean post var")
         axd.grid(True, alpha=0.3)
 
-    handles1, labels1 = axes_top[0].get_legend_handles_labels()
-    handles2, labels2 = ax2_first.get_legend_handles_labels()
+    # ---------- legends ----------
+    handles1, labels1 = axes_kl_fwd[0].get_legend_handles_labels()
+    handles2, labels2 = ax2_first_fwd.get_legend_handles_labels()
+    handles1r, labels1r = axes_kl_rev[0].get_legend_handles_labels()
+    handles2r, labels2r = ax2_first_rev.get_legend_handles_labels()
+
     handles3, labels3 = axes_mid[0].get_legend_handles_labels()
     handles4, labels4 = ax4_first.get_legend_handles_labels()
     handles5, labels5 = axes_bot[0].get_legend_handles_labels()
     handles6, labels6 = ax6_first.get_legend_handles_labels()
     handles7, labels7 = axes_last[0].get_legend_handles_labels()
-    fig.legend(handles1 + handles2 + handles3 + handles4 + handles5 + handles6 + handles7, labels1 + labels2 + labels3 + labels4 + labels5 + labels6 + labels7,
-            loc="outside lower center",
-            ncol=4,
-            frameon=False)
 
+    fig_kl_fwd.legend(handles1 + handles2,
+                      labels1 + labels2,
+                      loc="outside lower center",
+                      ncol=4,
+                      frameon=False)
 
+    fig_kl_rev.legend(handles1r + handles2r,
+                      labels1r + labels2r,
+                      loc="outside lower center",
+                      ncol=4,
+                      frameon=False)
 
+    fig_alpha.legend(handles3 + handles4,
+                     labels3 + labels4,
+                     loc="outside lower center",
+                     ncol=4,
+                     frameon=False)
 
+    fig_wass.legend(handles5 + handles6,
+                    labels5 + labels6,
+                    loc="outside lower center",
+                    ncol=4,
+                    frameon=False)
 
-    fig.suptitle(f"basis: {BASIS}")
+    fig_diff.legend(handles7,
+                    labels7,
+                    loc="outside lower center",
+                    ncol=4,
+                    frameon=False)
+
+    fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL")
+    fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL")
+    fig_alpha.suptitle(f"basis: {BASIS} | alpha")
+    fig_wass.suptitle(f"basis: {BASIS} | wass2")
+    fig_diff.suptitle(f"basis: {BASIS} | var diff")
 
     if BASIS == "rbf":
-        outpath = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}.pdf"
+        base = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}"
     elif BASIS == "polynomial":
-        outpath = f"figs/uci/uci_divs_{BASIS}_deg={deg}.pdf"
+        base = f"figs/uci/uci_divs_{BASIS}_deg={deg}"
     else:
-        outpath = f"figs/uci/uci_divs_{BASIS}.pdf"
+        base = f"figs/uci/uci_divs_{BASIS}"
+
+    outpath_kl_fwd = base + "_kl_fwd.pdf"
+    outpath_kl_rev = base + "_kl_rev.pdf"
+    outpath_alpha = base + "_alpha.pdf"
+    outpath_wass = base + "_wass.pdf"
+    outpath_diff = base + "_diff.pdf"
 
     os.makedirs("figs/uci/", exist_ok=True)
-    fig.savefig(outpath, bbox_inches="tight")
+    fig_kl_fwd.savefig(outpath_kl_fwd, bbox_inches="tight")
+    fig_kl_rev.savefig(outpath_kl_rev, bbox_inches="tight")
+    fig_alpha.savefig(outpath_alpha, bbox_inches="tight")
+    fig_wass.savefig(outpath_wass, bbox_inches="tight")
+    fig_diff.savefig(outpath_diff, bbox_inches="tight")
 
-    print(f"Saved figure to {outpath}")
+    print(f"Saved figure to {outpath_kl_fwd}")
+    print(f"Saved figure to {outpath_kl_rev}")
+    print(f"Saved figure to {outpath_alpha}")
+    print(f"Saved figure to {outpath_wass}")
+    print(f"Saved figure to {outpath_diff}")
+
 
