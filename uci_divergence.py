@@ -218,7 +218,7 @@ def divergences(X, y, Ts, n_max = 1000):
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    n_reps = 5
+    n_reps = 20
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
@@ -228,7 +228,7 @@ if __name__ == "__main__":
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
