@@ -7,7 +7,6 @@ from math import log
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
 from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
@@ -218,7 +217,11 @@ def divergences(X, y, Ts, n_max = 1000):
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-    n_reps = 20
+
+    from tueplots.bundles import icml2024
+    plt.rcParams.update(icml2024(nrows=3, ncols=3))
+
+    n_reps = 3
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
@@ -228,7 +231,7 @@ if __name__ == "__main__":
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -242,11 +245,21 @@ if __name__ == "__main__":
     COL_TE = "tab:blue"
     COL_TR = "tab:orange"
 
-    fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-    fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-    fig_alpha, axes_mid = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-    fig_wass, axes_bot = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-    fig_diff, axes_last = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+    fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, 
+                                            figsize=(11, 11), 
+                                           constrained_layout=True)
+    fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, 
+                                            figsize=(11, 11), 
+                                           constrained_layout=True)
+    fig_alpha, axes_mid = plt.subplots(3, 3, 
+                                        figsize=(11, 11), 
+                                       constrained_layout=True)
+    fig_wass, axes_bot = plt.subplots(3, 3, 
+                                       figsize=(11, 11), 
+                                      constrained_layout=True)
+    fig_diff, axes_last = plt.subplots(3, 3, 
+                                        figsize=(11, 11), 
+                                       constrained_layout=True)
 
     axes_kl_fwd = axes_kl_fwd.ravel()
     axes_kl_rev = axes_kl_rev.ravel()
