@@ -99,6 +99,7 @@ def npll(X, y, Ts):
     true_T1_npll = log(2*torch.pi) / 2 + \
                         torch.log(true_T1_var) / 2 + \
                         (y_te - true_T1_mean)[:, None]**2 / true_T1_var / 2
+    
     kls = 0.5 * torch.log(mfvi_post_var / true_T1_var) + 0.5 * true_T1_var / mfvi_post_var - 0.5
 
     return torch.mean(true_T1_npll, dim = 0), torch.mean(true_npll, dim = 0), torch.mean(mfvi_nplls, dim = 0), torch.mean(kls, dim=0)

@@ -19,12 +19,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = True
+LEARN_NOISE_L = False
 P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -212,6 +212,29 @@ def divergences(X, y, Ts, n_max = 1000):
     metrix["sq_diff_post_var_te"] = check_bad(diff_post_var_te**2).detach().cpu().numpy()
     metrix["sq_diff_post_var_tr"] = check_bad(diff_post_var_tr**2).detach().cpu().numpy()
 
+
+    # NLL (negative predictive log-likelihood)
+
+    true_npll_te = log(2*torch.pi) / 2 + \
+                    torch.log(true_post_var_te) / 2 + \
+                    (y_te - true_post_mean_te)[:, None]**2 / true_post_var_te / 2
+    true_npll_tr = log(2*torch.pi) / 2 + \
+                    torch.log(true_post_var_tr) / 2 + \
+                    (y_tr - true_post_mean_tr)[:, None]**2 / true_post_var_tr / 2
+    
+    mfvi_nplls_te = log(2*torch.pi) / 2 + \
+                    torch.log(mfvi_post_var_te) / 2 + \
+                    (y_te - mfvi_post_mean_te)[:, None]**2 / mfvi_post_var_te / 2
+    mfvi_nplls_tr = log(2*torch.pi) / 2 + \
+                    torch.log(mfvi_post_var_tr) / 2 + \
+                    (y_tr - mfvi_post_mean_tr)[:, None]**2 / mfvi_post_var_tr / 2
+    
+    metrix["true_npll_te"] = check_bad(true_npll_te.mean(dim=0)).detach().cpu().numpy()
+    metrix["true_npll_tr"] = check_bad(true_npll_tr.mean(dim=0)).detach().cpu().numpy()
+
+    metrix["mfvi_nplls_te"] = check_bad(mfvi_nplls_te.mean(dim=0)).detach().cpu().numpy()
+    metrix["mfvi_nplls_tr"] = check_bad(mfvi_nplls_tr.mean(dim=0)).detach().cpu().numpy()
+
     return metrix
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
@@ -223,21 +246,22 @@ if __name__ == "__main__":
 
     # for now until latex works on cluster
     plt.rcParams.update({
-        "text.usetex": False,        # <- prevents calling latex (fixes the crash)
+        "text.usetex": False,        
         "font.family": "STIXGeneral",
         "mathtext.fontset": "stix",
         "axes.unicode_minus": False,
     })
 
-    n_reps = 10
+    n_reps = 3
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
     T_RANGE_WASS = (-1, .5)
     T_RANGE_DIFF = (-1.5, .5)
+    T_RANGE_NLL = (-1.5, .5)
 
-    tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
-    tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
+    tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0], T_RANGE_NLL[0])
+    tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1], T_RANGE_NLL[1])
 
     Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
@@ -272,12 +296,16 @@ if __name__ == "__main__":
     fig_diff, axes_last = plt.subplots(3, 3,
                                        figsize=(11, 11),
                                        constrained_layout=True)
+    fig_nll, axes_nll = plt.subplots(3, 3,
+                                     figsize=(11, 11),
+                                     constrained_layout=True)
 
     axes_kl_fwd = axes_kl_fwd.ravel()
     axes_kl_rev = axes_kl_rev.ravel()
     axes_mid = axes_mid.ravel()
     axes_bot = axes_bot.ravel()
     axes_last = axes_last.ravel()
+    axes_nll = axes_nll.ravel()
 
     log10Ts_np = log10Ts.detach().cpu().numpy()
 
@@ -285,17 +313,20 @@ if __name__ == "__main__":
     mask_alpha = (log10Ts_np >= T_RANGE_ALPHA[0]) & (log10Ts_np <= T_RANGE_ALPHA[1])
     mask_wass = (log10Ts_np >= T_RANGE_WASS[0]) & (log10Ts_np <= T_RANGE_WASS[1])
     mask_diff = (log10Ts_np >= T_RANGE_DIFF[0]) & (log10Ts_np <= T_RANGE_DIFF[1])
+    mask_nll = (log10Ts_np >= T_RANGE_NLL[0]) & (log10Ts_np <= T_RANGE_NLL[1])
 
     x_kl = log10Ts_np[mask_kl]
     x_alpha = log10Ts_np[mask_alpha]
     x_wass = log10Ts_np[mask_wass]
     x_diff = log10Ts_np[mask_diff]
+    x_nll = log10Ts_np[mask_nll]
 
     ax2_first_fwd = None
     ax2_first_rev = None
     ax4_first = None
     ax6_first = None
 
+    i = 0
     for axf, axr, axb, axc, axd, dataset in zip(axes_kl_fwd, axes_kl_rev, axes_mid, axes_bot, axes_last, datasets):
         print("="*50)
         print(dataset.capitalize())
@@ -310,6 +341,8 @@ if __name__ == "__main__":
             "alpha_te", "alpha_tr", "joint_alpha_te", "joint_alpha_tr",
             "wass2_te", "wass2_tr", "joint_wass2_te", "joint_wass2_tr",
             "sq_diff_post_var_te", "sq_diff_post_var_tr",
+            "true_npll_te", "true_npll_tr",
+            "mfvi_nplls_te", "mfvi_nplls_tr",
         ]
 
         reps = {k: [] for k in keys}
@@ -456,6 +489,33 @@ if __name__ == "__main__":
         axd.set_ylabel("Diff² mean post var")
         axd.grid(True, alpha=0.3)
 
+        # ---------- NLL ----------
+        axn = axes_nll[i]
+        for k_true, k_mfvi, lab_true, lab_mfvi, col in [
+            ("true_npll_te", "mfvi_nplls_te", "true NLL te", "mfvi NLL te", COL_TE),
+            ("true_npll_tr", "mfvi_nplls_tr", "true NLL tr", "mfvi NLL tr", COL_TR),
+        ]:
+            y_true = metrix[k_true].item()
+            s_true = metrix2[k_true].item()
+
+            axn.plot(x_nll, np.full_like(x_nll, y_true), label=lab_true, color=col, alpha=0.6)[0]
+            axn.plot(x_nll, np.full_like(x_nll, y_true + s_true), linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axn.plot(x_nll, np.full_like(x_nll, y_true - s_true), linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+
+            y0 = metrix[k_mfvi][mask_nll]
+            s0 = metrix2[k_mfvi][mask_nll]
+            ln = axn.plot(x_nll, y0, label=lab_mfvi, linestyle="--", color=col)[0]
+            axn.plot(x_nll, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axn.plot(x_nll, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+
+        axn.set_title(dataset)
+        axn.set_xlabel(r"$\log_{10}(T)$")
+        axn.set_ylabel("NLL")
+        axn.grid(True, alpha=0.3)
+
+        i += 1
+
     # ---------- legends ----------
     handles1, labels1 = axes_kl_fwd[0].get_legend_handles_labels()
     handles2, labels2 = ax2_first_fwd.get_legend_handles_labels()
@@ -467,6 +527,7 @@ if __name__ == "__main__":
     handles5, labels5 = axes_bot[0].get_legend_handles_labels()
     handles6, labels6 = ax6_first.get_legend_handles_labels()
     handles7, labels7 = axes_last[0].get_legend_handles_labels()
+    handles8, labels8 = axes_nll[0].get_legend_handles_labels()
 
     fig_kl_fwd.legend(handles1 + handles2,
                       labels1 + labels2,
@@ -498,11 +559,18 @@ if __name__ == "__main__":
                     ncol=4,
                     frameon=False)
 
+    fig_nll.legend(handles8,
+                   labels8,
+                   loc="outside lower center",
+                   ncol=4,
+                   frameon=False)
+
     fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL")
     fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL")
     fig_alpha.suptitle(f"basis: {BASIS} | alpha")
     fig_wass.suptitle(f"basis: {BASIS} | wass2")
     fig_diff.suptitle(f"basis: {BASIS} | var diff")
+    fig_nll.suptitle(f"basis: {BASIS} | NLL")
 
     if BASIS == "rbf":
         base = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}"
@@ -516,6 +584,7 @@ if __name__ == "__main__":
     outpath_alpha = base + "_alpha.pdf"
     outpath_wass = base + "_wass.pdf"
     outpath_diff = base + "_diff.pdf"
+    outpath_nll = base + "_nll.pdf"
 
     os.makedirs("figs/uci/", exist_ok=True)
     fig_kl_fwd.savefig(outpath_kl_fwd, bbox_inches="tight")
@@ -523,12 +592,14 @@ if __name__ == "__main__":
     fig_alpha.savefig(outpath_alpha, bbox_inches="tight")
     fig_wass.savefig(outpath_wass, bbox_inches="tight")
     fig_diff.savefig(outpath_diff, bbox_inches="tight")
+    fig_nll.savefig(outpath_nll, bbox_inches="tight")
 
     print(f"Saved figure to {outpath_kl_fwd}")
     print(f"Saved figure to {outpath_kl_rev}")
     print(f"Saved figure to {outpath_alpha}")
     print(f"Saved figure to {outpath_wass}")
     print(f"Saved figure to {outpath_diff}")
+    print(f"Saved figure to {outpath_nll}")
 
 
 
