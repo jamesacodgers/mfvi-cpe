@@ -223,11 +223,11 @@ if __name__ == "__main__":
 
     # for now until latex works on cluster
     plt.rcParams.update({
-    "text.usetex": False,        # <- prevents calling latex (fixes the crash)
-    "font.family": "STIXGeneral",
-    "mathtext.fontset": "stix",
-    "axes.unicode_minus": False,
-})
+        "text.usetex": False,        # <- prevents calling latex (fixes the crash)
+        "font.family": "STIXGeneral",
+        "mathtext.fontset": "stix",
+        "axes.unicode_minus": False,
+    })
 
     n_reps = 10
 
@@ -253,20 +253,24 @@ if __name__ == "__main__":
     COL_TE = "tab:blue"
     COL_TR = "tab:orange"
 
-    fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, 
-                                            figsize=(11, 11), 
-                                           constrained_layout=True)
-    fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, 
-                                            figsize=(11, 11), 
-                                           constrained_layout=True)
-    fig_alpha, axes_mid = plt.subplots(3, 3, 
-                                        figsize=(11, 11), 
+    # std line style
+    STD_LS = ":"
+    STD_ALPHA = 0.6
+
+    fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3,
+                                          figsize=(11, 11),
+                                          constrained_layout=True)
+    fig_kl_rev, axes_kl_rev = plt.subplots(3, 3,
+                                          figsize=(11, 11),
+                                          constrained_layout=True)
+    fig_alpha, axes_mid = plt.subplots(3, 3,
+                                       figsize=(11, 11),
                                        constrained_layout=True)
-    fig_wass, axes_bot = plt.subplots(3, 3, 
-                                       figsize=(11, 11), 
+    fig_wass, axes_bot = plt.subplots(3, 3,
+                                      figsize=(11, 11),
                                       constrained_layout=True)
-    fig_diff, axes_last = plt.subplots(3, 3, 
-                                        figsize=(11, 11), 
+    fig_diff, axes_last = plt.subplots(3, 3,
+                                       figsize=(11, 11),
                                        constrained_layout=True)
 
     axes_kl_fwd = axes_kl_fwd.ravel()
@@ -325,7 +329,10 @@ if __name__ == "__main__":
         for k, lab, col in [("fwd_kls_te", "marg fwd KL te", COL_TE),
                             ("fwd_kls_tr", "marg fwd KL tr", COL_TR)]:
             y0 = metrix[k][mask_kl]
+            s0 = metrix2[k][mask_kl]
             ln = axf.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
+            axf.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axf.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axf.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axf2 = axf.twinx()
@@ -335,7 +342,10 @@ if __name__ == "__main__":
         for k, lab, col in [("fwd_joint_kl_te", "joint fwd KL te", COL_TE),
                             ("fwd_joint_kl_tr", "joint fwd KL tr", COL_TR)]:
             y0 = metrix[k][mask_kl]
+            s0 = metrix2[k][mask_kl]
             ln = axf2.plot(x_kl, y0, label=lab, color=col)[0]
+            axf2.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axf2.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axf2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axf.set_title(dataset)
@@ -348,7 +358,10 @@ if __name__ == "__main__":
         for k, lab, col in [("rev_kls_te", "marg rev KL te", COL_TE),
                             ("rev_kls_tr", "marg rev KL tr", COL_TR)]:
             y0 = metrix[k][mask_kl]
+            s0 = metrix2[k][mask_kl]
             ln = axr.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
+            axr.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axr.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axr.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axr2 = axr.twinx()
@@ -358,7 +371,10 @@ if __name__ == "__main__":
         for k, lab, col in [("rev_joint_kl_te", "joint rev KL te", COL_TE),
                             ("rev_joint_kl_tr", "joint rev KL tr", COL_TR)]:
             y0 = metrix[k][mask_kl]
+            s0 = metrix2[k][mask_kl]
             ln = axr2.plot(x_kl, y0, label=lab, color=col)[0]
+            axr2.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axr2.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axr2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axr.set_title(dataset)
@@ -371,7 +387,10 @@ if __name__ == "__main__":
         for k, lab, col in [("alpha_te", "marg alpha te", COL_TE),
                             ("alpha_tr", "marg alpha tr", COL_TR)]:
             y0 = metrix[k][mask_alpha]
+            s0 = metrix2[k][mask_alpha]
             ln = axb.plot(x_alpha, y0, label=lab, linestyle="--", color=col)[0]
+            axb.plot(x_alpha, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axb.plot(x_alpha, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axb.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axb2 = axb.twinx()
@@ -381,7 +400,10 @@ if __name__ == "__main__":
         for k, lab, col in [("joint_alpha_te", "joint alpha te", COL_TE),
                             ("joint_alpha_tr", "joint alpha tr", COL_TR)]:
             y0 = metrix[k][mask_alpha]
+            s0 = metrix2[k][mask_alpha]
             ln = axb2.plot(x_alpha, y0, label=lab, color=col)[0]
+            axb2.plot(x_alpha, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axb2.plot(x_alpha, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axb2.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axb.set_title(dataset)
@@ -394,7 +416,10 @@ if __name__ == "__main__":
         for k, lab, col in [("wass2_te", "marg wass2 te", COL_TE),
                             ("wass2_tr", "marg wass2 tr", COL_TR)]:
             y0 = metrix[k][mask_wass]
+            s0 = metrix2[k][mask_wass]
             ln = axc.plot(x_wass, y0, label=lab, linestyle="--", color=col)[0]
+            axc.plot(x_wass, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axc.plot(x_wass, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axc.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axc2 = axc.twinx()
@@ -404,7 +429,10 @@ if __name__ == "__main__":
         for k, lab, col in [("joint_wass2_te", "joint wass2 te", COL_TE),
                             ("joint_wass2_tr", "joint wass2 tr", COL_TR)]:
             y0 = metrix[k][mask_wass]
+            s0 = metrix2[k][mask_wass]
             ln = axc2.plot(x_wass, y0, label=lab, color=col)[0]
+            axc2.plot(x_wass, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axc2.plot(x_wass, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axc2.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axc.set_title(dataset)
@@ -417,7 +445,10 @@ if __name__ == "__main__":
         for k, lab, col in [("sq_diff_post_var_te", "diff² post var te", COL_TE),
                             ("sq_diff_post_var_tr", "diff² post var tr", COL_TR)]:
             y0 = metrix[k][mask_diff]
+            s0 = metrix2[k][mask_diff]
             ln = axd.plot(x_diff, y0, label=lab, linestyle="--", color=col)[0]
+            axd.plot(x_diff, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axd.plot(x_diff, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axd.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
         axd.set_title(dataset)
@@ -498,5 +529,6 @@ if __name__ == "__main__":
     print(f"Saved figure to {outpath_alpha}")
     print(f"Saved figure to {outpath_wass}")
     print(f"Saved figure to {outpath_diff}")
+
 
 
