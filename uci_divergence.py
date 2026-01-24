@@ -19,12 +19,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = False
+LEARN_NOISE_L = True
 P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -252,7 +252,7 @@ if __name__ == "__main__":
         "axes.unicode_minus": False,
     })
 
-    n_reps = 3
+    n_reps = 10
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
