@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = False
+LEARN_NOISE_L = True
 P_PRSCISN = 1
 TR_FRC = 0.7
 
@@ -221,7 +221,15 @@ if __name__ == "__main__":
     from tueplots.bundles import icml2024
     plt.rcParams.update(icml2024(nrows=3, ncols=3))
 
-    n_reps = 3
+    # for now until latex works on cluster
+    plt.rcParams.update({
+    "text.usetex": False,        # <- prevents calling latex (fixes the crash)
+    "font.family": "STIXGeneral",
+    "mathtext.fontset": "stix",
+    "axes.unicode_minus": False,
+})
+
+    n_reps = 10
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
@@ -231,7 +239,7 @@ if __name__ == "__main__":
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
