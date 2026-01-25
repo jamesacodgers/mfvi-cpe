@@ -9,7 +9,7 @@ import numpy as np
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l_alpha
 from src.basis_functions import apply_basis
 from src.utils import check_bad
 
@@ -19,12 +19,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = True
+LEARN_NOISE_L = False
 P_PRSCISN = 1
 TR_FRC = 0.7
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -72,18 +72,21 @@ def divergences(X, y, Ts, n_max = 1000):
     y_te -= m_y_tr
 
     noise_std = O_NOISE
+    prior_precision = P_PRSCISN
     if LEARN_NOISE_L:
-        sigma, l,  _ = opt_sigma_l(X_tr, y_tr, prior_precision=P_PRSCISN, basis_kwargs=BASIS_KWARGS, basis_type=BASIS,
-                                   init_sigma=0.1, init_l=1, verbose=True, steps=1000)
+        sigma, l, alpha,  _ = opt_sigma_l_alpha(X_tr, y_tr, basis_kwargs=BASIS_KWARGS, basis_type=BASIS,
+                                   init_sigma=0.1, init_l=1, init_prior_precision=1,
+                                   verbose=True, steps=1000)
         noise_std = sigma
         BASIS_KWARGS["lengthscale"] = l
+        prior_precision = alpha
 
     X_tr = apply_basis(X=X_tr, basis_type=BASIS, **BASIS_KWARGS); print("train", X_tr.shape)
     X_te = apply_basis(X=X_te, basis_type=BASIS, **BASIS_KWARGS); print("test", X_te.shape)
 
-    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=P_PRSCISN)
+    mu, Sigma = compute_exact_posterior(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=prior_precision)
 
-    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=P_PRSCISN)
+    m_opt, S_opt = compute_mfvi_analytic(train_X=X_tr, train_y=y_tr, noise_std=noise_std, prior_precision=prior_precision)
 
     true_post_mean_te, true_post_var_te = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
                                                        noise_std=noise_std)
@@ -215,12 +218,18 @@ def divergences(X, y, Ts, n_max = 1000):
 
     # NLL (negative predictive log-likelihood)
 
-    true_npll_te = log(2*torch.pi) / 2 + \
-                    torch.log(true_post_var_te) / 2 + \
-                    (y_te - true_post_mean_te)[:, None]**2 / true_post_var_te / 2
-    true_npll_tr = log(2*torch.pi) / 2 + \
-                    torch.log(true_post_var_tr) / 2 + \
-                    (y_tr - true_post_mean_tr)[:, None]**2 / true_post_var_tr / 2
+    # temper true post for these plots
+    true_t_post_mean_te, true_t_post_var_te = post_pred_mean_var(test_X=X_te, post_mean=mu, post_cov=Sigma, 
+                                                       noise_std=noise_std, temp=Ts)
+    true_t_post_mean_tr, true_t_post_var_tr = post_pred_mean_var(test_X=X_tr, post_mean=mu, post_cov=Sigma, 
+                                                       noise_std=noise_std, temp=Ts)
+
+    true_t_npll_te = log(2*torch.pi) / 2 + \
+                    torch.log(true_t_post_var_te) / 2 + \
+                    (y_te - true_t_post_mean_te)[:, None]**2 / true_t_post_var_te / 2
+    true_t_npll_tr = log(2*torch.pi) / 2 + \
+                    torch.log(true_t_post_var_tr) / 2 + \
+                    (y_tr - true_t_post_mean_tr)[:, None]**2 / true_t_post_var_tr / 2
     
     mfvi_nplls_te = log(2*torch.pi) / 2 + \
                     torch.log(mfvi_post_var_te) / 2 + \
@@ -229,8 +238,8 @@ def divergences(X, y, Ts, n_max = 1000):
                     torch.log(mfvi_post_var_tr) / 2 + \
                     (y_tr - mfvi_post_mean_tr)[:, None]**2 / mfvi_post_var_tr / 2
     
-    metrix["true_npll_te"] = check_bad(true_npll_te.mean(dim=0)).detach().cpu().numpy()
-    metrix["true_npll_tr"] = check_bad(true_npll_tr.mean(dim=0)).detach().cpu().numpy()
+    metrix["true_t_npll_te"] = check_bad(true_t_npll_te.mean(dim=0)).detach().cpu().numpy()
+    metrix["true_t_npll_tr"] = check_bad(true_t_npll_tr.mean(dim=0)).detach().cpu().numpy()
 
     metrix["mfvi_nplls_te"] = check_bad(mfvi_nplls_te.mean(dim=0)).detach().cpu().numpy()
     metrix["mfvi_nplls_tr"] = check_bad(mfvi_nplls_tr.mean(dim=0)).detach().cpu().numpy()
@@ -252,7 +261,7 @@ if __name__ == "__main__":
         "axes.unicode_minus": False,
     })
 
-    n_reps = 10
+    n_reps = 3
 
     T_RANGE_KL = (-1, .5)
     T_RANGE_ALPHA = (-2, 1)
@@ -263,7 +272,7 @@ if __name__ == "__main__":
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0], T_RANGE_NLL[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1], T_RANGE_NLL[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 50, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
@@ -326,8 +335,8 @@ if __name__ == "__main__":
     ax4_first = None
     ax6_first = None
 
-    i = 0
-    for axf, axr, axb, axc, axd, dataset in zip(axes_kl_fwd, axes_kl_rev, axes_mid, axes_bot, axes_last, datasets):
+    for axf, axr, axb, axc, axd, axn, dataset in zip(
+            axes_kl_fwd, axes_kl_rev, axes_mid, axes_bot, axes_last, axes_nll, datasets):
         print("="*50)
         print(dataset.capitalize())
         X_df, y_df = load_dataset(dataset)
@@ -341,7 +350,7 @@ if __name__ == "__main__":
             "alpha_te", "alpha_tr", "joint_alpha_te", "joint_alpha_tr",
             "wass2_te", "wass2_tr", "joint_wass2_te", "joint_wass2_tr",
             "sq_diff_post_var_te", "sq_diff_post_var_tr",
-            "true_npll_te", "true_npll_tr",
+            "true_t_npll_te", "true_t_npll_tr",
             "mfvi_nplls_te", "mfvi_nplls_tr",
         ]
 
@@ -490,17 +499,16 @@ if __name__ == "__main__":
         axd.grid(True, alpha=0.3)
 
         # ---------- NLL ----------
-        axn = axes_nll[i]
         for k_true, k_mfvi, lab_true, lab_mfvi, col in [
-            ("true_npll_te", "mfvi_nplls_te", "true NLL te", "mfvi NLL te", COL_TE),
-            ("true_npll_tr", "mfvi_nplls_tr", "true NLL tr", "mfvi NLL tr", COL_TR),
+            ("true_t_npll_te", "mfvi_nplls_te", "true T-NLL te", "mfvi T-NLL te", COL_TE),
+            ("true_t_npll_tr", "mfvi_nplls_tr", "true T-NLL tr", "mfvi T-NLL tr", COL_TR),
         ]:
-            y_true = metrix[k_true].item()
-            s_true = metrix2[k_true].item()
-
-            axn.plot(x_nll, np.full_like(x_nll, y_true), label=lab_true, color=col, alpha=0.6)[0]
-            axn.plot(x_nll, np.full_like(x_nll, y_true + s_true), linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axn.plot(x_nll, np.full_like(x_nll, y_true - s_true), linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            y0 = metrix[k_true][mask_nll]
+            s0 = metrix2[k_true][mask_nll]
+            ln = axn.plot(x_nll, y0, label=lab_true, linestyle="-", color=col)[0]
+            axn.plot(x_nll, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axn.plot(x_nll, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
 
             y0 = metrix[k_mfvi][mask_nll]
             s0 = metrix2[k_mfvi][mask_nll]
@@ -514,8 +522,6 @@ if __name__ == "__main__":
         axn.set_ylabel("NLL")
         axn.grid(True, alpha=0.3)
 
-        i += 1
-
     # ---------- legends ----------
     handles1, labels1 = axes_kl_fwd[0].get_legend_handles_labels()
     handles2, labels2 = ax2_first_fwd.get_legend_handles_labels()
@@ -528,6 +534,7 @@ if __name__ == "__main__":
     handles6, labels6 = ax6_first.get_legend_handles_labels()
     handles7, labels7 = axes_last[0].get_legend_handles_labels()
     handles8, labels8 = axes_nll[0].get_legend_handles_labels()
+
 
     fig_kl_fwd.legend(handles1 + handles2,
                       labels1 + labels2,

@@ -316,3 +316,105 @@ def opt_sigma_l(
     sigma_hat = float(torch.sqrt(torch.exp(log_sigma2)).detach().cpu())
     l_hat = float(torch.exp(log_l).detach().cpu())
     return sigma_hat, l_hat, hist
+
+
+def opt_sigma_l_alpha(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    basis_kwargs: dict,
+    basis_type: str,
+    *,
+    lr: float = 1e-2,
+    steps: int = 500,
+    init_sigma: float = 0.1,
+    init_l: float = 1.,
+    init_prior_precision: float = 1.,
+    jitter: float = 1e-8,
+    verbose: bool = False,
+                        ):  
+    # assume X is already standardized and y is centered
+
+    device = X.device
+    X = X.to(dtype=dtype, device=device)
+    y = y.to(dtype=dtype, device=device)
+
+    n, d = X.shape
+    m = basis_kwargs["m"]
+
+    log_a = torch.tensor(
+        math.log(init_prior_precision), dtype=dtype, device=device, requires_grad=True
+    )
+
+    log_sigma2 = torch.tensor(
+        math.log(init_sigma**2), dtype=dtype, device=device, requires_grad=True
+    )
+    log_l = torch.tensor(
+        math.log(init_l), dtype=dtype, device=device, requires_grad=True
+    )
+    opt = torch.optim.Adam([log_sigma2, log_l, log_a], lr=lr)
+
+    I_n = torch.eye(n, dtype=dtype, device=device)
+    I_d = torch.eye(m, dtype=dtype, device=device)
+
+    
+    use_primal = (n > m)  # primal (mxm) if n>m, dual (nxn) if n<=m
+
+    hist = []
+    log2pi = math.log(2.0 * math.pi)
+
+    for t in range(steps):
+        opt.zero_grad()
+
+        sigma2 = torch.exp(log_sigma2).clamp_min(1e-12)
+        l = torch.exp(log_l).clamp_min(1e-12)
+        a = torch.exp(log_a).clamp_min(1e-12)
+
+        basis_kwargs["lengthscale"] = l
+
+        if use_primal:
+            Phi = apply_basis(X, basis_type=basis_type, **basis_kwargs)
+
+            PP = Phi.T @ Phi
+            Phiy = Phi.T @ y
+            A = I_d + (1.0 / (a * sigma2)) * PP
+            A = A + jitter * I_d
+            L, _ = torch.linalg.cholesky_ex(A)
+
+            logdetA = 2.0 * torch.log(torch.diag(L)).sum()
+            logdetC = n * torch.log(sigma2) + logdetA
+
+            v = torch.cholesky_solve(Phiy.unsqueeze(1), L).squeeze(1)
+            v = (1.0 / a) * v
+
+            Cinv_y = (y / sigma2) - (Phi @ v) / (sigma2 * sigma2)
+            quad = y.dot(Cinv_y)
+
+        else:
+            Phi = apply_basis(X, basis_type=basis_type, **basis_kwargs)
+
+            K = Phi @ Phi.T
+            C = sigma2 * I_n + (1.0 / a) * K
+            C = C + jitter * I_n
+            L, _ = torch.linalg.cholesky_ex(C)
+
+            logdetC = 2.0 * torch.log(torch.diag(L)).sum()
+
+            alpha = torch.cholesky_solve(y.unsqueeze(1), L).squeeze(1)
+            quad = y.dot(alpha)
+
+        logp = -0.5 * (logdetC + quad + n * log2pi)
+
+        loss = -logp
+        loss.backward()
+        opt.step()
+
+        hist.append(float(logp.detach().cpu()))
+
+        if verbose and (t % max(1, steps // 10) == 0 or t == steps - 1):
+            print(f"[{t:4d}] sigma={float(torch.sqrt(sigma2).detach().cpu()):.6g}, l={float(l.detach().cpu()):.6g}, a={float(a.detach().cpu()):.6g} , logp={hist[-1]:.6g}")
+
+    sigma_hat = float(torch.sqrt(torch.exp(log_sigma2)).detach().cpu())
+    l_hat = float(torch.exp(log_l).detach().cpu())
+    a_hat = float(torch.exp(log_a).detach().cpu())
+    return sigma_hat, l_hat, a_hat, hist
+
