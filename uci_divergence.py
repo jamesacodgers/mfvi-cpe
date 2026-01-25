@@ -13,18 +13,30 @@ from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, pos
 from src.basis_functions import apply_basis
 from src.utils import check_bad
 
-
 dtype = torch.float64
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
-O_NOISE = .1 # overridden if LEARN_NOISE_L == True
-LEARN_NOISE_L = False
-P_PRSCISN = 1
+# set up #
+
+O_NOISE = .1; P_PRSCISN = 1 # overridden if LEARN_NOISE_L_ALPHA == True
+LEARN_NOISE_L_ALPHA = True
+
 TR_FRC = 0.7
+N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
+
+N_REPS = 10
+
+T_RANGE_KL = (-1, .5)
+T_RANGE_ALPHA = (-2, 1)
+T_RANGE_WASS = (-1, .5)
+T_RANGE_DIFF = (-1.5, .5)
+T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
+
+T_POINTS = 50
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -48,6 +60,7 @@ def divergences(X, y, Ts, n_max = 1000):
     y = y[perm]
     y_tr = y[:tt_split_ind]
     y_te = y[tt_split_ind:n_eff]
+
     m_X_tr = X_tr.mean(0)
     std_X_tr = X_tr.std(0)
     m_y_tr = y_tr.mean()
@@ -73,10 +86,10 @@ def divergences(X, y, Ts, n_max = 1000):
 
     noise_std = O_NOISE
     prior_precision = P_PRSCISN
-    if LEARN_NOISE_L:
+    if LEARN_NOISE_L_ALPHA:
         sigma, l, alpha,  _ = opt_sigma_l_alpha(X_tr, y_tr, basis_kwargs=BASIS_KWARGS, basis_type=BASIS,
-                                   init_sigma=0.1, init_l=1, init_prior_precision=1,
-                                   verbose=True, steps=1000)
+                                   init_sigma=0.1, init_l=1, init_prior_precision=0.5,
+                                   verbose=True, steps=2000)
         noise_std = sigma
         BASIS_KWARGS["lengthscale"] = l
         prior_precision = alpha
@@ -261,23 +274,15 @@ if __name__ == "__main__":
         "axes.unicode_minus": False,
     })
 
-    n_reps = 3
-
-    T_RANGE_KL = (-1, .5)
-    T_RANGE_ALPHA = (-2, 1)
-    T_RANGE_WASS = (-1, .5)
-    T_RANGE_DIFF = (-1.5, .5)
-    T_RANGE_NLL = (-1.5, .5)
-
     tmin = min(T_RANGE_KL[0], T_RANGE_ALPHA[0], T_RANGE_WASS[0], T_RANGE_DIFF[0], T_RANGE_NLL[0])
     tmax = max(T_RANGE_KL[1], T_RANGE_ALPHA[1], T_RANGE_WASS[1], T_RANGE_DIFF[1], T_RANGE_NLL[1])
 
-    Ts = 10 ** torch.linspace(tmin, tmax, 10, dtype=dtype, device=device)
+    Ts = 10 ** torch.linspace(tmin, tmax, T_POINTS, dtype=dtype, device=device)
     log10Ts = torch.log10(Ts)
 
     if BASIS == "rbf":
         p = BASIS_KWARGS["m"]
-        l = BASIS_KWARGS["lengthscale"] if not LEARN_NOISE_L else "learned"
+        l = BASIS_KWARGS["lengthscale"] if not LEARN_NOISE_L_ALPHA else "learned"
 
     if BASIS == "polynomial":
         deg = BASIS_KWARGS["degree"]
@@ -355,8 +360,8 @@ if __name__ == "__main__":
         ]
 
         reps = {k: [] for k in keys}
-        for _ in range(n_reps):
-            met = divergences(X, y, Ts[:, None])
+        for _ in range(N_REPS):
+            met = divergences(X, y, Ts[:, None], N_MAX)
             for k in keys:
                 reps[k].append(met[k])
 

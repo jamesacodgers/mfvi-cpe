@@ -351,7 +351,11 @@ def opt_sigma_l_alpha(
     log_l = torch.tensor(
         math.log(init_l), dtype=dtype, device=device, requires_grad=True
     )
-    opt = torch.optim.Adam([log_sigma2, log_l, log_a], lr=lr)
+    opt = torch.optim.Adam([
+    {"params": [log_sigma2, log_l], "lr": lr},
+    {"params": [log_a], "lr": lr * 0.1},
+])
+
 
     I_n = torch.eye(n, dtype=dtype, device=device)
     I_d = torch.eye(m, dtype=dtype, device=device)
