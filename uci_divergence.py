@@ -9,7 +9,7 @@ import numpy as np
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l_alpha
+from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l_alpha, pca_ood_trte_split, rand_trte_split
 from src.basis_functions import apply_basis
 from src.utils import check_bad
 
@@ -20,12 +20,13 @@ print(device)
 # set up #
 
 O_NOISE = .1; P_PRSCISN = 1 # overridden if LEARN_NOISE_L_ALPHA == True
-LEARN_NOISE_L_ALPHA = True
+LEARN_NOISE_L_ALPHA = False
 
 TR_FRC = 0.7
 N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
+OOD_TRTE = True
 
-N_REPS = 10
+N_REPS = 2
 
 T_RANGE_KL = (-1, .5)
 T_RANGE_ALPHA = (-2, 1)
@@ -33,10 +34,10 @@ T_RANGE_WASS = (-1, .5)
 T_RANGE_DIFF = (-1.5, .5)
 T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
 
-T_POINTS = 50
+T_POINTS = 10
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -54,18 +55,23 @@ def divergences(X, y, Ts, n_max = 1000):
     # pre-process
     tt_split_ind = int(TR_FRC * n_eff)
     perm = torch.randperm(n, device=X.device)
-    X = X[perm]
-    X_tr = X[:tt_split_ind]
-    X_te = X[tt_split_ind:n_eff]
-    y = y[perm]
-    y_tr = y[:tt_split_ind]
-    y_te = y[tt_split_ind:n_eff]
+    X = X[perm][:n_eff]
+    y = y[perm][:n_eff]
+
+    if OOD_TRTE:
+        X_tr, X_te, y_tr, y_te = pca_ood_trte_split(X, y, tt_split_ind)
+
+    else:
+        X_tr, X_te, y_tr, y_te = rand_trte_split(X, y, tt_split_ind)
 
     m_X_tr = X_tr.mean(0)
     std_X_tr = X_tr.std(0)
     m_y_tr = y_tr.mean()
     X_tr = (X_tr - m_X_tr) / (std_X_tr + 1e-8)
     X_te = (X_te - m_X_tr) / (std_X_tr + 1e-8)
+
+    y_tr -= m_y_tr
+    y_te -= m_y_tr
 
     n_te = X_te.shape[0]
     n_tr = X_tr.shape[0]
@@ -81,8 +87,7 @@ def divergences(X, y, Ts, n_max = 1000):
         centers = L_tr[None, ...] @ eps[..., None] 
         BASIS_KWARGS["centers"] = centers.squeeze(-1)
 
-    y_tr -= m_y_tr
-    y_te -= m_y_tr
+    
 
     noise_std = O_NOISE
     prior_precision = P_PRSCISN
@@ -577,12 +582,12 @@ if __name__ == "__main__":
                    ncol=4,
                    frameon=False)
 
-    fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL")
-    fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL")
-    fig_alpha.suptitle(f"basis: {BASIS} | alpha")
-    fig_wass.suptitle(f"basis: {BASIS} | wass2")
-    fig_diff.suptitle(f"basis: {BASIS} | var diff")
-    fig_nll.suptitle(f"basis: {BASIS} | NLL")
+    fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL | OOD test == {OOD_TRTE}")
+    fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL| OOD test == {OOD_TRTE}")
+    fig_alpha.suptitle(f"basis: {BASIS} | alpha| OOD test == {OOD_TRTE}")
+    fig_wass.suptitle(f"basis: {BASIS} | wass2| OOD test == {OOD_TRTE}")
+    fig_diff.suptitle(f"basis: {BASIS} | var diff| OOD test == {OOD_TRTE}")
+    fig_nll.suptitle(f"basis: {BASIS} | NLL| OOD test == {OOD_TRTE}")
 
     if BASIS == "rbf":
         base = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}"

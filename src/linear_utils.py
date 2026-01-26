@@ -422,3 +422,39 @@ def opt_sigma_l_alpha(
     a_hat = float(torch.exp(log_a).detach().cpu())
     return sigma_hat, l_hat, a_hat, hist
 
+def pca_ood_trte_split(X, y, n_tr):
+
+    # pick train points to be most aligned with 1st PC
+    # could also use more than the first ofc
+
+    _X = (X-X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
+
+    _, _, V = torch.linalg.svd(_X, full_matrices=False)
+    pc1 = V[0] # (d, )
+    sim_score = torch.abs(_X @ pc1)
+
+    sort_inds = torch.argsort(sim_score, descending=True)
+    X = X[sort_inds]
+    y = y[sort_inds]
+
+    X_tr = X[:n_tr]
+    X_te = X[n_tr:]
+
+    y_tr = y[:n_tr]
+    y_te = y[n_tr:]
+
+    return X_tr, X_te, y_tr, y_te
+
+def rand_trte_split(X, y, n_tr):
+
+    X_tr = X[:n_tr]
+    X_te = X[n_tr:]
+
+    y_tr = y[:n_tr]
+    y_te = y[n_tr:]
+
+    return X_tr, X_te, y_tr, y_te
+
+
+
+
