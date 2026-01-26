@@ -450,14 +450,15 @@ def pca_ood_trte_split(X, y, n_tr):
 def feat_ood_trte_split(X, y, n_tr):
 
     # make train test split based on raw features
+    # randomly pick feature
+    # split on this feature train_frac quantile
 
-    _X = (X-X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
+    n, d = X.shape
 
-    _, _, V = torch.linalg.svd(_X, full_matrices=False)
-    pc1 = V[0] # (d, )
-    sim_score = torch.abs(_X @ pc1)
+    p = torch.randint(high=d-1)
+    x_p = X[:, p]
+    sort_inds = torch.argsort(x_p)
 
-    sort_inds = torch.argsort(sim_score, descending=True)
     X = X[sort_inds]
     y = y[sort_inds]
 

@@ -9,7 +9,14 @@ import numpy as np
 
 from src.utils import set_seeds
 from src.UCI_data import load_dataset
-from src.linear_utils import compute_mfvi_analytic, compute_exact_posterior, post_pred_mean_var, opt_sigma_l_alpha, pca_ood_trte_split, rand_trte_split
+from src.linear_utils import (compute_mfvi_analytic, 
+                              compute_exact_posterior, 
+                              post_pred_mean_var, 
+                              opt_sigma_l_alpha, 
+                              pca_ood_trte_split, 
+                              rand_trte_split,
+                              feat_ood_trte_split,
+)
 from src.basis_functions import apply_basis
 from src.utils import check_bad
 
@@ -24,7 +31,7 @@ LEARN_NOISE_L_ALPHA = True
 
 TR_FRC = 0.7
 N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
-OOD_TRTE = True
+OOD_TRTE = True; PCA = False # OOD split by pca or feature 
 
 N_REPS = 10
 
@@ -37,7 +44,7 @@ T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
 T_POINTS = 50
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -59,7 +66,10 @@ def divergences(X, y, Ts, n_max = 1000):
     y = y[perm][:n_eff]
 
     if OOD_TRTE:
-        X_tr, X_te, y_tr, y_te = pca_ood_trte_split(X, y, tt_split_ind)
+        if PCA:
+            X_tr, X_te, y_tr, y_te = pca_ood_trte_split(X, y, tt_split_ind)
+        else:
+            X_tr, X_te, y_tr, y_te = feat_ood_trte_split(X, y, tt_split_ind)
 
     else:
         X_tr, X_te, y_tr, y_te = rand_trte_split(X, y, tt_split_ind)
@@ -360,6 +370,7 @@ if __name__ == "__main__":
         "TR_FRC": TR_FRC,
         "N_MAX": N_MAX,
         "OOD_TRTE": OOD_TRTE,
+        "PCA": PCA,
         "N_REPS": N_REPS,
         "T_RANGE_KL": T_RANGE_KL,
         "T_RANGE_ALPHA": T_RANGE_ALPHA,
@@ -653,13 +664,21 @@ if __name__ == "__main__":
         base = f"figs/uci/uci_divs_{BASIS}_deg={deg}"
     else:
         base = f"figs/uci/uci_divs_{BASIS}"
+    
+    ood_pth = ""
+    if OOD_TRTE:
+        if PCA:
+            ood_pth = "_ood_pca"
+        else:
+            ood_pth = "_ood_feat"
 
-    outpath_kl_fwd = base + "_kl_fwd.pdf" if not OOD_TRTE else base + "_ood_kl_fwd.pdf"
-    outpath_kl_rev = base + "_kl_rev.pdf" if not OOD_TRTE else base + "_ood_kl_rev.pdf"
-    outpath_alpha = base + "_alpha.pdf" if not OOD_TRTE else base + "_ood_alpha.pdf"
-    outpath_wass = base + "_wass.pdf" if not OOD_TRTE else base + "_ood_wass.pdf"
-    outpath_diff = base + "_diff.pdf" if not OOD_TRTE else base + "_ood_diff.pdf"
-    outpath_nll = base + "_nll.pdf" if not OOD_TRTE else base + "_ood_nll.pdf"
+
+    outpath_kl_fwd = base + ood_pth + "_kl_fwd.pdf" 
+    outpath_kl_rev = base + ood_pth + "_kl_rev.pdf" 
+    outpath_alpha = base + ood_pth + "_alpha.pdf" 
+    outpath_wass = base + ood_pth + "_wass.pdf" 
+    outpath_diff = base + ood_pth + "_diff.pdf" 
+    outpath_nll = base + ood_pth + "_nll.pdf" 
 
     os.makedirs("figs/uci/", exist_ok=True)
     fig_kl_fwd.savefig(outpath_kl_fwd, bbox_inches="tight")
@@ -676,7 +695,7 @@ if __name__ == "__main__":
     print(f"Saved figure to {outpath_diff}")
     print(f"Saved figure to {outpath_nll}")
 
-    outpath_results = base + "_results.pt" if not OOD_TRTE else base + "_ood_results.pt"
+    outpath_results = base + ood_pth + "_results.pt"
     torch.save(results, outpath_results)
     print(f"\nSaved results dict to {outpath_results}")
 
