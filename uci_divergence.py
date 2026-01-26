@@ -583,11 +583,11 @@ if __name__ == "__main__":
                    frameon=False)
 
     fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL | OOD test == {OOD_TRTE}")
-    fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL| OOD test == {OOD_TRTE}")
-    fig_alpha.suptitle(f"basis: {BASIS} | alpha| OOD test == {OOD_TRTE}")
-    fig_wass.suptitle(f"basis: {BASIS} | wass2| OOD test == {OOD_TRTE}")
+    fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL | OOD test == {OOD_TRTE}")
+    fig_alpha.suptitle(f"basis: {BASIS} | alpha | OOD test == {OOD_TRTE}")
+    fig_wass.suptitle(f"basis: {BASIS} | wass2 | OOD test == {OOD_TRTE}")
     fig_diff.suptitle(f"basis: {BASIS} | var diff| OOD test == {OOD_TRTE}")
-    fig_nll.suptitle(f"basis: {BASIS} | NLL| OOD test == {OOD_TRTE}")
+    fig_nll.suptitle(f"basis: {BASIS} | NLL | OOD test == {OOD_TRTE}")
 
     if BASIS == "rbf":
         base = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}"
@@ -596,12 +596,12 @@ if __name__ == "__main__":
     else:
         base = f"figs/uci/uci_divs_{BASIS}"
 
-    outpath_kl_fwd = base + "_kl_fwd.pdf"
-    outpath_kl_rev = base + "_kl_rev.pdf"
-    outpath_alpha = base + "_alpha.pdf"
-    outpath_wass = base + "_wass.pdf"
-    outpath_diff = base + "_diff.pdf"
-    outpath_nll = base + "_nll.pdf"
+    outpath_kl_fwd = base + "_kl_fwd.pdf" if not OOD_TRTE else base + "_ood_kl_fwd.pdf"
+    outpath_kl_rev = base + "_kl_rev.pdf" if not OOD_TRTE else base + "_ood_kl_rev.pdf"
+    outpath_alpha = base + "_alpha.pdf" if not OOD_TRTE else base + "_ood_alpha.pdf"
+    outpath_wass = base + "_wass.pdf" if not OOD_TRTE else base + "_ood_wass.pdf"
+    outpath_diff = base + "_diff.pdf" if not OOD_TRTE else base + "_ood_diff.pdf"
+    outpath_nll = base + "_nll.pdf" if not OOD_TRTE else base + "_ood_nll.pdf"
 
     os.makedirs("figs/uci/", exist_ok=True)
     fig_kl_fwd.savefig(outpath_kl_fwd, bbox_inches="tight")
