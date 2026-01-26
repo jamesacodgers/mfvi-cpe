@@ -369,9 +369,9 @@ def opt_sigma_l_alpha(
     for t in range(steps):
         opt.zero_grad()
 
-        sigma2 = torch.exp(log_sigma2).clamp_min(1e-12)
-        l = torch.exp(log_l).clamp_min(1e-12)
-        a = torch.exp(log_a).clamp_min(1e-12)
+        sigma2 = torch.exp(log_sigma2).clamp_min(1e-8)
+        l = torch.exp(log_l).clamp_min(1e-8)
+        a = torch.exp(log_a).clamp_min(1e-8)
 
         basis_kwargs["lengthscale"] = l
 

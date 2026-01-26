@@ -20,13 +20,13 @@ print(device)
 # set up #
 
 O_NOISE = .1; P_PRSCISN = 1 # overridden if LEARN_NOISE_L_ALPHA == True
-LEARN_NOISE_L_ALPHA = False
+LEARN_NOISE_L_ALPHA = True
 
 TR_FRC = 0.7
 N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
-OOD_TRTE = True
+OOD_TRTE = False
 
-N_REPS = 2
+N_REPS = 10
 
 T_RANGE_KL = (-1, .5)
 T_RANGE_ALPHA = (-2, 1)
@@ -34,10 +34,10 @@ T_RANGE_WASS = (-1, .5)
 T_RANGE_DIFF = (-1.5, .5)
 T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
 
-T_POINTS = 10
+T_POINTS = 50
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -87,7 +87,7 @@ def divergences(X, y, Ts, n_max = 1000):
         centers = L_tr[None, ...] @ eps[..., None] 
         BASIS_KWARGS["centers"] = centers.squeeze(-1)
 
-    
+
 
     noise_std = O_NOISE
     prior_precision = P_PRSCISN
@@ -262,7 +262,10 @@ def divergences(X, y, Ts, n_max = 1000):
     metrix["mfvi_nplls_te"] = check_bad(mfvi_nplls_te.mean(dim=0)).detach().cpu().numpy()
     metrix["mfvi_nplls_tr"] = check_bad(mfvi_nplls_tr.mean(dim=0)).detach().cpu().numpy()
 
-    return metrix
+    hypers = {"noise_std": noise_std, 
+              "lengthscale": BASIS_KWARGS["lengthscale"], 
+              "prior_precision": prior_precision}
+    return metrix, hypers
     
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
@@ -345,6 +348,45 @@ if __name__ == "__main__":
     ax4_first = None
     ax6_first = None
 
+    # save results and meta data
+    results = {}
+    results["meta"] = {
+        "datasets": datasets,
+        "dtype": str(dtype),
+        "device": str(device),
+        "O_NOISE": O_NOISE,
+        "P_PRSCISN": P_PRSCISN,
+        "LEARN_NOISE_L_ALPHA": LEARN_NOISE_L_ALPHA,
+        "TR_FRC": TR_FRC,
+        "N_MAX": N_MAX,
+        "OOD_TRTE": OOD_TRTE,
+        "N_REPS": N_REPS,
+        "T_RANGE_KL": T_RANGE_KL,
+        "T_RANGE_ALPHA": T_RANGE_ALPHA,
+        "T_RANGE_WASS": T_RANGE_WASS,
+        "T_RANGE_DIFF": T_RANGE_DIFF,
+        "T_RANGE_NLL": T_RANGE_NLL,
+        "T_POINTS": T_POINTS,
+        "BASIS": BASIS,
+        "BASIS_KWARGS": dict(BASIS_KWARGS),
+    }
+    results["temps"] = {
+        "Ts": Ts.detach().cpu().numpy(),
+        "log10Ts": log10Ts_np,
+        "mask_kl": mask_kl,
+        "mask_alpha": mask_alpha,
+        "mask_wass": mask_wass,
+        "mask_diff": mask_diff,
+        "mask_nll": mask_nll,
+        "x_kl": x_kl,
+        "x_alpha": x_alpha,
+        "x_wass": x_wass,
+        "x_diff": x_diff,
+        "x_nll": x_nll,
+    }
+    results["data"] = {}
+
+
     for axf, axr, axb, axc, axd, axn, dataset in zip(
             axes_kl_fwd, axes_kl_rev, axes_mid, axes_bot, axes_last, axes_nll, datasets):
         print("="*50)
@@ -365,8 +407,10 @@ if __name__ == "__main__":
         ]
 
         reps = {k: [] for k in keys}
-        for _ in range(N_REPS):
-            met = divergences(X, y, Ts[:, None], N_MAX)
+        hypers = {}
+        for i in range(N_REPS):
+            met, hyp = divergences(X, y, Ts[:, None], N_MAX)
+            hypers[f"rep{i}"] = hyp
             for k in keys:
                 reps[k].append(met[k])
 
@@ -377,6 +421,20 @@ if __name__ == "__main__":
             metrix[k] = arr.mean(axis=0)
             metrix2[k] = 2.0 * arr.std(axis=0)
 
+        # save results
+        reps_np = {}
+        for k in keys:
+            reps_np[k] = np.stack(reps[k], axis=0)
+
+        results["data"][dataset] = {
+            "keys": list(keys),
+            "reps": reps_np,
+            "mean": dict(metrix),
+            "std2": dict(metrix2),
+            "hypers": hypers
+        }
+
+
         # ---------- KL (forward) ----------
         for k, lab, col in [("fwd_kls_te", "marg fwd KL te", COL_TE),
                             ("fwd_kls_tr", "marg fwd KL tr", COL_TR)]:
@@ -385,7 +443,7 @@ if __name__ == "__main__":
             ln = axf.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
             axf.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axf.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axf.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axf.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axf2 = axf.twinx()
         if ax2_first_fwd is None:
@@ -398,7 +456,7 @@ if __name__ == "__main__":
             ln = axf2.plot(x_kl, y0, label=lab, color=col)[0]
             axf2.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axf2.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axf2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axf2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axf.set_title(dataset)
         axf.set_xlabel(r"$\log_{10}(T)$")
@@ -414,7 +472,7 @@ if __name__ == "__main__":
             ln = axr.plot(x_kl, y0, label=lab, linestyle="--", color=col)[0]
             axr.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axr.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axr.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axr.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axr2 = axr.twinx()
         if ax2_first_rev is None:
@@ -427,7 +485,7 @@ if __name__ == "__main__":
             ln = axr2.plot(x_kl, y0, label=lab, color=col)[0]
             axr2.plot(x_kl, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axr2.plot(x_kl, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axr2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axr2.axvline(x_kl[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axr.set_title(dataset)
         axr.set_xlabel(r"$\log_{10}(T)$")
@@ -443,7 +501,7 @@ if __name__ == "__main__":
             ln = axb.plot(x_alpha, y0, label=lab, linestyle="--", color=col)[0]
             axb.plot(x_alpha, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axb.plot(x_alpha, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axb.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axb.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axb2 = axb.twinx()
         if ax4_first is None:
@@ -456,7 +514,7 @@ if __name__ == "__main__":
             ln = axb2.plot(x_alpha, y0, label=lab, color=col)[0]
             axb2.plot(x_alpha, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axb2.plot(x_alpha, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axb2.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axb2.axvline(x_alpha[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axb.set_title(dataset)
         axb.set_xlabel(r"$\log_{10}(T)$")
@@ -472,7 +530,7 @@ if __name__ == "__main__":
             ln = axc.plot(x_wass, y0, label=lab, linestyle="--", color=col)[0]
             axc.plot(x_wass, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axc.plot(x_wass, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axc.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axc.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axc2 = axc.twinx()
         if ax6_first is None:
@@ -485,7 +543,7 @@ if __name__ == "__main__":
             ln = axc2.plot(x_wass, y0, label=lab, color=col)[0]
             axc2.plot(x_wass, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axc2.plot(x_wass, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axc2.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axc2.axvline(x_wass[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axc.set_title(dataset)
         axc.set_xlabel(r"$\log_{10}(T)$")
@@ -501,7 +559,7 @@ if __name__ == "__main__":
             ln = axd.plot(x_diff, y0, label=lab, linestyle="--", color=col)[0]
             axd.plot(x_diff, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axd.plot(x_diff, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axd.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axd.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axd.set_title(dataset)
         axd.set_xlabel(r"$\log_{10}(T)$")
@@ -518,14 +576,14 @@ if __name__ == "__main__":
             ln = axn.plot(x_nll, y0, label=lab_true, linestyle="-", color=col)[0]
             axn.plot(x_nll, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axn.plot(x_nll, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
             y0 = metrix[k_mfvi][mask_nll]
             s0 = metrix2[k_mfvi][mask_nll]
             ln = axn.plot(x_nll, y0, label=lab_mfvi, linestyle="--", color=col)[0]
             axn.plot(x_nll, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
             axn.plot(x_nll, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
-            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), alpha=0.4)
+            axn.axvline(x_nll[np.argmin(y0)], color=ln.get_color(), linestyle = ln.get_linestyle(), alpha=0.4)
 
         axn.set_title(dataset)
         axn.set_xlabel(r"$\log_{10}(T)$")
@@ -617,6 +675,11 @@ if __name__ == "__main__":
     print(f"Saved figure to {outpath_wass}")
     print(f"Saved figure to {outpath_diff}")
     print(f"Saved figure to {outpath_nll}")
+
+    outpath_results = base + "_results.pt" if not OOD_TRTE else base + "_ood_results.pt"
+    torch.save(results, outpath_results)
+    print(f"\nSaved results dict to {outpath_results}")
+
 
 
 
