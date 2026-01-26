@@ -4,6 +4,7 @@ from torch.distributions import Normal
 import math
 
 from src.basis_functions import apply_basis
+from src.utils import check_bad
 
 dtype = torch.float64
 
@@ -50,11 +51,12 @@ def compute_exact_posterior(train_X, train_y, noise_std, prior_precision):
 
     n, d = train_X.shape
     Precision_matrix = train_X.T @ train_X / noise_std**2 + prior_precision * torch.eye(d).to(train_X)
-    Sigma = torch.linalg.inv(Precision_matrix)
+    L = torch.linalg.cholesky(Precision_matrix)
+    Sigma = torch.cholesky_inverse(L)
 
     mu = Sigma @ train_X.T @ train_y / noise_std**2
 
-    return mu, Sigma
+    return mu, check_bad(Sigma)
 
 def test_nll_mfvi(X_test: torch.Tensor, y_test: torch.Tensor, 
                   mu: torch.Tensor, sigma: torch.Tensor,
@@ -369,9 +371,9 @@ def opt_sigma_l_alpha(
     for t in range(steps):
         opt.zero_grad()
 
-        sigma2 = torch.exp(log_sigma2).clamp_min(1e-8)
-        l = torch.exp(log_l).clamp_min(1e-8)
-        a = torch.exp(log_a).clamp_min(1e-8)
+        sigma2 = torch.exp(log_sigma2).clamp_min(1e-12)
+        l = torch.exp(log_l).clamp_min(1e-12)
+        a = torch.exp(log_a).clamp_min(1e-12)
 
         basis_kwargs["lengthscale"] = l
 
@@ -426,6 +428,28 @@ def pca_ood_trte_split(X, y, n_tr):
 
     # pick train points to be most aligned with 1st PC
     # could also use more than the first ofc
+
+    _X = (X-X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
+
+    _, _, V = torch.linalg.svd(_X, full_matrices=False)
+    pc1 = V[0] # (d, )
+    sim_score = torch.abs(_X @ pc1)
+
+    sort_inds = torch.argsort(sim_score, descending=True)
+    X = X[sort_inds]
+    y = y[sort_inds]
+
+    X_tr = X[:n_tr]
+    X_te = X[n_tr:]
+
+    y_tr = y[:n_tr]
+    y_te = y[n_tr:]
+
+    return X_tr, X_te, y_tr, y_te
+
+def feat_ood_trte_split(X, y, n_tr):
+
+    # make train test split based on raw features
 
     _X = (X-X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
 

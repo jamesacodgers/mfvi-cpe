@@ -24,7 +24,7 @@ LEARN_NOISE_L_ALPHA = True
 
 TR_FRC = 0.7
 N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
-OOD_TRTE = False
+OOD_TRTE = True
 
 N_REPS = 10
 
@@ -37,7 +37,7 @@ T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
 T_POINTS = 50
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 5000 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
