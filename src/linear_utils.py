@@ -455,7 +455,7 @@ def feat_ood_trte_split(X, y, n_tr):
 
     n, d = X.shape
 
-    p = torch.randint(high=d-1)
+    p = torch.randint(low=0, high=d, size=(1,), device=X.device).item()
     x_p = X[:, p]
     sort_inds = torch.argsort(x_p)
 
