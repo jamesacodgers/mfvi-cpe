@@ -480,6 +480,124 @@ def rand_trte_split(X, y, n_tr):
 
     return X_tr, X_te, y_tr, y_te
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_train_test_temp_gap_violins(results, include_nll=False):
+    """
+    For each divergence family, create a figure with one column per dataset.
+    Each dataset-column contains violin plots of:
+        Δ = argmin_T(metric_test) - argmin_T(metric_train)
+    computed per repetition, using log10(T).
+
+    If a family has both marginal and joint versions, their violins are shown side-by-side.
+
+    Parameters
+    ----------
+    results : dict
+        The dict saved by your script (torch.save(results, ...)).
+    include_nll : bool
+        If True, also plots MFVI NLL and "true tempered" NLL as additional families.
+
+    Returns
+    -------
+    figs : dict[str, matplotlib.figure.Figure]
+        Mapping from family name to the created figure.
+    """
+    datasets = results.get("meta", {}).get("datasets", list(results.get("data", {}).keys()))
+    log10Ts = np.asarray(results["temps"]["log10Ts"])
+
+    # Masks (use the same ranges you used for plotting)
+    mask_kl    = np.asarray(results["temps"]["mask_kl"])
+    mask_alpha = np.asarray(results["temps"]["mask_alpha"])
+    mask_wass  = np.asarray(results["temps"]["mask_wass"])
+    mask_diff  = np.asarray(results["temps"]["mask_diff"])
+    mask_nll   = np.asarray(results["temps"]["mask_nll"])
+
+    # Define "divergence families" and which (train/test) keys belong to each
+    families = [
+        ("Forward KL",     [("fwd_kls", "marg"), ("fwd_joint_kl", "joint")], mask_kl),
+        ("Reverse KL",     [("rev_kls", "marg"), ("rev_joint_kl", "joint")], mask_kl),
+        ("Alpha (Hellinger)", [("alpha", "marg"), ("joint_alpha", "joint")], mask_alpha),
+        ("Wasserstein-2",  [("wass2", "marg"), ("joint_wass2", "joint")], mask_wass),
+        ("VarDiff^2",      [("sq_diff_post_var", "marg")], mask_diff),
+    ]
+    if include_nll:
+        families += [
+            ("NLL (MFVI)",   [("mfvi_nplls", "marg")], mask_nll),
+            ("NLL (True tempered)", [("true_t_npll", "marg")], mask_nll),
+        ]
+
+    def _temp_gap_per_rep(reps_te, reps_tr, mask):
+        """
+        reps_te/reps_tr: arrays of shape (n_reps, n_temps)
+        return: array shape (n_reps,) of Δ log10T = log10T_te* - log10T_tr*
+        """
+        reps_te = np.asarray(reps_te)
+        reps_tr = np.asarray(reps_tr)
+
+        # Restrict to the intended temperature window for this metric
+        te_m = reps_te[:, mask]
+        tr_m = reps_tr[:, mask]
+        log10_m = log10Ts[mask]
+
+        # Argmin per rep
+        te_idx = np.argmin(te_m, axis=1)
+        tr_idx = np.argmin(tr_m, axis=1)
+
+        te_star = log10_m[te_idx]
+        tr_star = log10_m[tr_idx]
+        return te_star - tr_star
+
+    figs = {}
+    n_ds = len(datasets)
+
+    for fam_name, variants, mask in families:
+        fig, axes = plt.subplots(
+            1, n_ds, figsize=(2.6 * n_ds, 3.2), sharey=True, constrained_layout=True
+        )
+        if n_ds == 1:
+            axes = [axes]
+
+        for ax, ds in zip(axes, datasets):
+            reps_dict = results["data"][ds]["reps"]
+
+            deltas = []
+            vlabels = []
+            for base_key, vlab in variants:
+                k_te = f"{base_key}_te"
+                k_tr = f"{base_key}_tr"
+                if (k_te not in reps_dict) or (k_tr not in reps_dict):
+                    continue
+
+                gap = _temp_gap_per_rep(reps_dict[k_te], reps_dict[k_tr], mask)
+                deltas.append(gap)
+                vlabels.append(vlab)
+
+            if len(deltas) == 0:
+                ax.set_title(ds)
+                ax.axhline(0.0, linewidth=1)
+                ax.set_xticks([])
+                ax.grid(True, axis="y", alpha=0.3)
+                continue
+
+            # Positions for side-by-side violins (marg/joint)
+            positions = np.arange(1, len(deltas) + 1, dtype=float)
+            vp = ax.violinplot(deltas, positions=positions, widths=0.7, showmeans=True)
+
+            ax.set_title(ds)
+            ax.set_xticks(positions)
+            ax.set_xticklabels(vlabels, rotation=0)
+            ax.axhline(0.0, linewidth=1)
+            ax.grid(True, axis="y", alpha=0.3)
+
+        axes[0].set_ylabel(r"$\Delta \log_{10}(T) = \log_{10}(T^*_{test}) - \log_{10}(T^*_{train})$")
+        fig.suptitle(fam_name)
+        figs[fam_name] = fig
+
+    return figs
+
+
 
 
 
