@@ -482,122 +482,146 @@ def rand_trte_split(X, y, n_tr):
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
-def plot_train_test_temp_gap_violins(results, include_nll=False):
+def id_ood_violin_plots(results_id, results_ood, marg_or_joint=True, include_nll=True):
     """
-    For each divergence family, create a figure with one column per dataset.
-    Each dataset-column contains violin plots of:
-        Δ = argmin_T(metric_test) - argmin_T(metric_train)
-    computed per repetition, using log10(T).
+    For each dataset, creates one figure.
 
-    If a family has both marginal and joint versions, their violins are shown side-by-side.
+    For each divergence on the x-axis, shows TWO violins:
+        - ID:  Δ log10T = log10(T*_test) - log10(T*_train) from results_id
+        - OOD: Δ log10T = log10(T*_test) - log10(T*_train) from results_ood
+
+    T* is the argmin over temperatures for that metric, per repetition/run.
 
     Parameters
     ----------
-    results : dict
-        The dict saved by your script (torch.save(results, ...)).
+    results_id : dict
+        Results dict from the script for in-distribution (ID) test setting.
+    results_ood : dict
+        Results dict from the script for out-of-distribution (OOD) test setting.
+    marg_or_joint : bool
+        If True: include only marginal divergences (where applicable).
+        If False: include only joint divergences (where applicable).
+        Note: metrics that have no joint version are included only in marginal mode.
     include_nll : bool
-        If True, also plots MFVI NLL and "true tempered" NLL as additional families.
+        If True, also appends two additional x-axis categories:
+            - "true NLL"  (keys: true_t_npll_{te,tr})
+            - "mfvi NLL"  (keys: mfvi_nplls_{te,tr})
 
     Returns
     -------
     figs : dict[str, matplotlib.figure.Figure]
-        Mapping from family name to the created figure.
+        Mapping dataset -> figure
     """
-    datasets = results.get("meta", {}).get("datasets", list(results.get("data", {}).keys()))
-    log10Ts = np.asarray(results["temps"]["log10Ts"])
 
-    # Masks (use the same ranges you used for plotting)
-    mask_kl    = np.asarray(results["temps"]["mask_kl"])
-    mask_alpha = np.asarray(results["temps"]["mask_alpha"])
-    mask_wass  = np.asarray(results["temps"]["mask_wass"])
-    mask_diff  = np.asarray(results["temps"]["mask_diff"])
-    mask_nll   = np.asarray(results["temps"]["mask_nll"])
+    def _get_meta(res):
+        datasets = res.get("meta", {}).get("datasets", list(res.get("data", {}).keys()))
+        log10Ts = np.asarray(res["temps"]["log10Ts"])
+        masks = {
+            "kl":    np.asarray(res["temps"]["mask_kl"]),
+            "alpha": np.asarray(res["temps"]["mask_alpha"]),
+            "wass":  np.asarray(res["temps"]["mask_wass"]),
+            "diff":  np.asarray(res["temps"]["mask_diff"]),
+            "nll":   np.asarray(res["temps"]["mask_nll"]),
+        }
+        return datasets, log10Ts, masks
 
-    # Define "divergence families" and which (train/test) keys belong to each
-    families = [
-        ("Forward KL",     [("fwd_kls", "marg"), ("fwd_joint_kl", "joint")], mask_kl),
-        ("Reverse KL",     [("rev_kls", "marg"), ("rev_joint_kl", "joint")], mask_kl),
-        ("Alpha (Hellinger)", [("alpha", "marg"), ("joint_alpha", "joint")], mask_alpha),
-        ("Wasserstein-2",  [("wass2", "marg"), ("joint_wass2", "joint")], mask_wass),
-        ("VarDiff^2",      [("sq_diff_post_var", "marg")], mask_diff),
+    ds_id, log10_id, masks_id = _get_meta(results_id)
+    ds_ood, log10_ood, masks_ood = _get_meta(results_ood)
+
+    datasets = [d for d in ds_id if d in set(ds_ood)]
+
+    # Candidate list: (display_name, base_key, mask_name, kind)
+    all_divs = [
+        ("fwd KL",          "fwd_kls",          "kl",    "marg"),
+        ("fwd KL",          "fwd_joint_kl",     "kl",    "joint"),
+        ("rev KL",          "rev_kls",          "kl",    "marg"),
+        ("rev KL",          "rev_joint_kl",     "kl",    "joint"),
+        ("alpha",           "alpha",            "alpha", "marg"),
+        ("alpha",           "joint_alpha",      "alpha", "joint"),
+        ("wass2",           "wass2",            "wass",  "marg"),
+        ("wass2",           "joint_wass2",      "wass",  "joint"),
+        ("var diff²",       "sq_diff_post_var", "diff",  "marg"),  # no joint version
     ]
+
+    want_kind = "marg" if marg_or_joint else "joint"
+    divs = [d for d in all_divs if d[3] == want_kind]
+
     if include_nll:
-        families += [
-            ("NLL (MFVI)",   [("mfvi_nplls", "marg")], mask_nll),
-            ("NLL (True tempered)", [("true_t_npll", "marg")], mask_nll),
+        divs += [
+            ("true NLL", "true_t_npll", "nll", "marg"),
+            ("mfvi NLL", "mfvi_nplls",  "nll", "marg"),
         ]
 
-    def _temp_gap_per_rep(reps_te, reps_tr, mask):
-        """
-        reps_te/reps_tr: arrays of shape (n_reps, n_temps)
-        return: array shape (n_reps,) of Δ log10T = log10T_te* - log10T_tr*
-        """
-        reps_te = np.asarray(reps_te)
-        reps_tr = np.asarray(reps_tr)
+    def _temp_gap_per_rep(res, dataset, base_key, mask, log10Ts):
+        reps = res["data"][dataset]["reps"]
+        k_te = f"{base_key}_te"
+        k_tr = f"{base_key}_tr"
+        if (k_te not in reps) or (k_tr not in reps):
+            return None
 
-        # Restrict to the intended temperature window for this metric
-        te_m = reps_te[:, mask]
-        tr_m = reps_tr[:, mask]
+        te = np.asarray(reps[k_te])  # (n_reps, n_temps)
+        tr = np.asarray(reps[k_tr])  # (n_reps, n_temps)
+
+        te_m = te[:, mask]
+        tr_m = tr[:, mask]
         log10_m = log10Ts[mask]
 
-        # Argmin per rep
         te_idx = np.argmin(te_m, axis=1)
         tr_idx = np.argmin(tr_m, axis=1)
 
-        te_star = log10_m[te_idx]
-        tr_star = log10_m[tr_idx]
-        return te_star - tr_star
+        return log10_m[te_idx] - log10_m[tr_idx]  # (n_reps,)
 
     figs = {}
-    n_ds = len(datasets)
 
-    for fam_name, variants, mask in families:
-        fig, axes = plt.subplots(
-            1, n_ds, figsize=(2.6 * n_ds, 3.2), sharey=True, constrained_layout=True
-        )
-        if n_ds == 1:
-            axes = [axes]
+    for ds in datasets:
+        names, deltas_id, deltas_ood = [], [], []
 
-        for ax, ds in zip(axes, datasets):
-            reps_dict = results["data"][ds]["reps"]
-
-            deltas = []
-            vlabels = []
-            for base_key, vlab in variants:
-                k_te = f"{base_key}_te"
-                k_tr = f"{base_key}_tr"
-                if (k_te not in reps_dict) or (k_tr not in reps_dict):
-                    continue
-
-                gap = _temp_gap_per_rep(reps_dict[k_te], reps_dict[k_tr], mask)
-                deltas.append(gap)
-                vlabels.append(vlab)
-
-            if len(deltas) == 0:
-                ax.set_title(ds)
-                ax.axhline(0.0, linewidth=1)
-                ax.set_xticks([])
-                ax.grid(True, axis="y", alpha=0.3)
+        for disp, base_key, mask_name, _kind in divs:
+            gap_id = _temp_gap_per_rep(results_id, ds, base_key, masks_id[mask_name], log10_id)
+            gap_ood = _temp_gap_per_rep(results_ood, ds, base_key, masks_ood[mask_name], log10_ood)
+            if gap_id is None or gap_ood is None:
                 continue
 
-            # Positions for side-by-side violins (marg/joint)
-            positions = np.arange(1, len(deltas) + 1, dtype=float)
-            vp = ax.violinplot(deltas, positions=positions, widths=0.7, showmeans=True)
+            names.append(disp)
+            deltas_id.append(gap_id)
+            deltas_ood.append(gap_ood)
 
-            ax.set_title(ds)
-            ax.set_xticks(positions)
-            ax.set_xticklabels(vlabels, rotation=0)
-            ax.axhline(0.0, linewidth=1)
-            ax.grid(True, axis="y", alpha=0.3)
+        n = len(names)
+        if n == 0:
+            continue
 
-        axes[0].set_ylabel(r"$\Delta \log_{10}(T) = \log_{10}(T^*_{test}) - \log_{10}(T^*_{train})$")
-        fig.suptitle(fam_name)
-        figs[fam_name] = fig
+        fig, ax = plt.subplots(figsize=(max(8, 1.2 * n), 3.8), constrained_layout=True)
+
+        x = np.arange(1, n + 1, dtype=float)
+        offset = 0.18
+        pos_id = x - offset
+        pos_ood = x + offset
+
+        vp_id = ax.violinplot(deltas_id, positions=pos_id, widths=0.32, showmeans=True)
+        vp_ood = ax.violinplot(deltas_ood, positions=pos_ood, widths=0.32, showmeans=True)
+
+        for b in vp_id["bodies"]:
+            b.set_facecolor("tab:blue"); b.set_alpha(0.55)
+        for b in vp_ood["bodies"]:
+            b.set_facecolor("tab:orange"); b.set_alpha(0.55)
+
+        ax.axhline(0.0, linewidth=1)
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=30, ha="right")
+        ax.set_ylabel(r"\log_{10}(T^*_{test}) - \log_{10}(T^*_{train})$")
+        kind_title = "marginal" if marg_or_joint else "joint"
+        ax.set_title(f"{ds}: ID vs OOD train–test optimal temperature gap ({kind_title})")
+        ax.grid(True, axis="y", alpha=0.3)
+
+        ax.legend(
+            handles=[Patch(facecolor="tab:blue", alpha=0.55, label="ID"),
+                     Patch(facecolor="tab:orange", alpha=0.55, label="OOD")],
+            frameon=False,
+            loc="upper right",
+        )
+
+        figs[ds] = fig
 
     return figs
-
-
-
-
-
