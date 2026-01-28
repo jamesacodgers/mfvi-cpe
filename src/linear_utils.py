@@ -664,29 +664,181 @@ def id_ood_violin_plots(results_id, results_ood, marg_or_joint=True, include_nll
     return figs
 
 
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from matplotlib.patches import Patch
+
+# def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
+#     """
+#     Adapted from the previous ID-vs-OOD gap plot.
+
+#     For each dataset, creates one figure.
+#     X-axis: divergences (marg/joint treated as separate divergences depending on marg_or_joint).
+#     For each divergence, shows THREE violins (per repetition/run) of the *optimal* temperature (argmin):
+#         1) train-optimal temperature      (minimizer of *_tr)
+#         2) ID test-optimal temperature    (minimizer of *_te from results_id)
+#         3) OOD test-optimal temperature   (minimizer of *_te from results_ood)
+
+#     Temperatures are plotted in log10-space: log10(T*).
+
+#     Parameters
+#     ----------
+#     results_id : dict
+#         Results dict from the script for in-distribution (ID) test setting.
+#     results_ood : dict
+#         Results dict from the script for out-of-distribution (OOD) test setting.
+#     marg_or_joint : bool
+#         If True: include only marginal divergences (where applicable).
+#         If False: include only joint divergences (where applicable).
+#         Note: metrics that have no joint version (e.g., var diff²) are included only in marginal mode.
+
+#     Returns
+#     -------
+#     figs : dict[str, matplotlib.figure.Figure]
+#         Mapping dataset -> figure
+#     """
+
+#     def _get_meta(res):
+#         datasets = res.get("meta", {}).get("datasets", list(res.get("data", {}).keys()))
+#         log10Ts = np.asarray(res["temps"]["log10Ts"])
+#         masks = {
+#             "kl":    np.asarray(res["temps"]["mask_kl"]),
+#             "alpha": np.asarray(res["temps"]["mask_alpha"]),
+#             "wass":  np.asarray(res["temps"]["mask_wass"]),
+#             "diff":  np.asarray(res["temps"]["mask_diff"]),
+#         }
+#         return datasets, log10Ts, masks
+
+#     ds_id, log10_id, masks_id = _get_meta(results_id)
+#     ds_ood, log10_ood, masks_ood = _get_meta(results_ood)
+
+#     # Intersection to be safe
+#     datasets = [d for d in ds_id if d in set(ds_ood)]
+
+#     # Candidate list: (display_name, base_key, mask_name, kind)
+#     all_divs = [
+#         ("fwd KL",    "fwd_kls",          "kl",    "marg"),
+#         ("fwd KL",    "fwd_joint_kl",     "kl",    "joint"),
+#         ("rev KL",    "rev_kls",          "kl",    "marg"),
+#         ("rev KL",    "rev_joint_kl",     "kl",    "joint"),
+#         ("alpha",     "alpha",            "alpha", "marg"),
+#         ("alpha",     "joint_alpha",      "alpha", "joint"),
+#         ("wass2",     "wass2",            "wass",  "marg"),
+#         ("wass2",     "joint_wass2",      "wass",  "joint"),
+#         ("var diff²", "sq_diff_post_var", "diff",  "marg"),  # no joint version in saved keys
+#     ]
+
+#     want_kind = "marg" if marg_or_joint else "joint"
+#     divs = [d for d in all_divs if d[3] == want_kind]
+
+#     def _argmin_log10T_per_rep(res, dataset, base_key, split_suffix, mask, log10Ts):
+#         """
+#         Returns log10(T*) per repetition, where T* minimizes the metric for the given split.
+#         split_suffix: "tr" or "te"
+#         """
+#         reps = res["data"][dataset]["reps"]
+#         k = f"{base_key}_{split_suffix}"
+#         if k not in reps:
+#             return None
+
+#         arr = np.asarray(reps[k])  # (n_reps, n_temps)
+#         arr_m = arr[:, mask]
+#         log10_m = log10Ts[mask]
+#         idx = np.argmin(arr_m, axis=1)
+#         return log10_m[idx]  # (n_reps,)
+
+#     figs = {}
+
+#     for ds in datasets:
+#         names = []
+#         vals_train = []
+#         vals_id_te = []
+#         vals_ood_te = []
+
+#         for disp, base_key, mask_name, _kind in divs:
+#             # Train: use *_tr from results_id (train runs are the same "type"; pick one consistently)
+#             tr_star = _argmin_log10T_per_rep(results_id, ds, base_key, "tr", masks_id[mask_name], log10_id)
+
+#             # ID test: *_te from results_id
+#             id_star = _argmin_log10T_per_rep(results_id, ds, base_key, "te", masks_id[mask_name], log10_id)
+
+#             # OOD test: *_te from results_ood
+#             ood_star = _argmin_log10T_per_rep(results_ood, ds, base_key, "te", masks_ood[mask_name], log10_ood)
+
+#             # Keep only if all three exist (so every divergence has 3 violins)
+#             if tr_star is None or id_star is None or ood_star is None:
+#                 continue
+
+#             names.append(disp)
+#             vals_train.append(tr_star)
+#             vals_id_te.append(id_star)
+#             vals_ood_te.append(ood_star)
+
+#         n = len(names)
+#         if n == 0:
+#             continue
+
+#         fig, ax = plt.subplots(figsize=(max(8, 1.2 * n), 3.8), constrained_layout=True)
+
+#         x = np.arange(1, n + 1, dtype=float)
+#         offset = 0.24
+#         pos_train = x - offset
+#         pos_id = x
+#         pos_ood = x + offset
+
+#         vp_train = ax.violinplot(vals_train, positions=pos_train, widths=0.25, showmeans=True)
+#         vp_id = ax.violinplot(vals_id_te, positions=pos_id, widths=0.25, showmeans=True)
+#         vp_ood = ax.violinplot(vals_ood_te, positions=pos_ood, widths=0.25, showmeans=True)
+
+#         # Minimal styling to distinguish the three
+#         for b in vp_train["bodies"]:
+#             b.set_facecolor("tab:blue"); b.set_alpha(0.55)
+#         for b in vp_id["bodies"]:
+#             b.set_facecolor("tab:orange"); b.set_alpha(0.55)
+#         for b in vp_ood["bodies"]:
+#             b.set_facecolor("tab:green"); b.set_alpha(0.55)
+
+#         ax.set_xticks(x)
+#         ax.set_xticklabels(names, rotation=30, ha="right")
+#         ax.set_ylabel(r"$\log_{10}(T^*)$")
+#         kind_title = "marginal" if marg_or_joint else "joint"
+#         ax.set_title(f"{ds}: optimal temperature distributions ({kind_title})")
+#         ax.grid(True, axis="y", alpha=0.3)
+
+#         ax.legend(
+#             handles=[
+#                 Patch(facecolor="tab:blue", alpha=0.55, label="Train"),
+#                 Patch(facecolor="tab:orange",  alpha=0.55, label="ID test"),
+#                 Patch(facecolor="tab:green",alpha=0.55, label="OOD test"),
+#             ],
+#             frameon=False,
+#             loc="upper right",
+#         )
+
+#         figs[ds] = fig
+
+#     return figs
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
+def raw_id_ood_violin_plots(results, marg_or_joint=True):
     """
-    Adapted from the previous ID-vs-OOD gap plot.
-
     For each dataset, creates one figure.
     X-axis: divergences (marg/joint treated as separate divergences depending on marg_or_joint).
     For each divergence, shows THREE violins (per repetition/run) of the *optimal* temperature (argmin):
         1) train-optimal temperature      (minimizer of *_tr)
-        2) ID test-optimal temperature    (minimizer of *_te from results_id)
-        3) OOD test-optimal temperature   (minimizer of *_te from results_ood)
+        2) ID test-optimal temperature    (minimizer of *_id)
+        3) OOD test-optimal temperature   (minimizer of *_ood)
 
     Temperatures are plotted in log10-space: log10(T*).
 
     Parameters
     ----------
-    results_id : dict
-        Results dict from the script for in-distribution (ID) test setting.
-    results_ood : dict
-        Results dict from the script for out-of-distribution (OOD) test setting.
+    results : dict
+        New results dict containing train/id/ood splits.
     marg_or_joint : bool
         If True: include only marginal divergences (where applicable).
         If False: include only joint divergences (where applicable).
@@ -709,11 +861,7 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
         }
         return datasets, log10Ts, masks
 
-    ds_id, log10_id, masks_id = _get_meta(results_id)
-    ds_ood, log10_ood, masks_ood = _get_meta(results_ood)
-
-    # Intersection to be safe
-    datasets = [d for d in ds_id if d in set(ds_ood)]
+    datasets, log10Ts, masks = _get_meta(results)
 
     # Candidate list: (display_name, base_key, mask_name, kind)
     all_divs = [
@@ -734,14 +882,18 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
     def _argmin_log10T_per_rep(res, dataset, base_key, split_suffix, mask, log10Ts):
         """
         Returns log10(T*) per repetition, where T* minimizes the metric for the given split.
-        split_suffix: "tr" or "te"
+        split_suffix: "tr" or "id" or "ood"
         """
         reps = res["data"][dataset]["reps"]
         k = f"{base_key}_{split_suffix}"
         if k not in reps:
             return None
 
-        arr = np.asarray(reps[k])  # (n_reps, n_temps)
+        arr = np.asarray(reps[k])  # (n_reps, n_temps)  [or (n_reps, n_temps, 1) if legacy shapes]
+        # be robust to accidental trailing singleton dim from older saves
+        if arr.ndim == 3 and arr.shape[-1] == 1:
+            arr = arr[..., 0]
+
         arr_m = arr[:, mask]
         log10_m = log10Ts[mask]
         idx = np.argmin(arr_m, axis=1)
@@ -752,18 +904,15 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
     for ds in datasets:
         names = []
         vals_train = []
-        vals_id_te = []
-        vals_ood_te = []
+        vals_id = []
+        vals_ood = []
 
         for disp, base_key, mask_name, _kind in divs:
-            # Train: use *_tr from results_id (train runs are the same "type"; pick one consistently)
-            tr_star = _argmin_log10T_per_rep(results_id, ds, base_key, "tr", masks_id[mask_name], log10_id)
+            m = masks[mask_name]
 
-            # ID test: *_te from results_id
-            id_star = _argmin_log10T_per_rep(results_id, ds, base_key, "te", masks_id[mask_name], log10_id)
-
-            # OOD test: *_te from results_ood
-            ood_star = _argmin_log10T_per_rep(results_ood, ds, base_key, "te", masks_ood[mask_name], log10_ood)
+            tr_star  = _argmin_log10T_per_rep(results, ds, base_key, "tr",  m, log10Ts)
+            id_star  = _argmin_log10T_per_rep(results, ds, base_key, "id",  m, log10Ts)
+            ood_star = _argmin_log10T_per_rep(results, ds, base_key, "ood", m, log10Ts)
 
             # Keep only if all three exist (so every divergence has 3 violins)
             if tr_star is None or id_star is None or ood_star is None:
@@ -771,8 +920,8 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
 
             names.append(disp)
             vals_train.append(tr_star)
-            vals_id_te.append(id_star)
-            vals_ood_te.append(ood_star)
+            vals_id.append(id_star)
+            vals_ood.append(ood_star)
 
         n = len(names)
         if n == 0:
@@ -787,8 +936,8 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
         pos_ood = x + offset
 
         vp_train = ax.violinplot(vals_train, positions=pos_train, widths=0.25, showmeans=True)
-        vp_id = ax.violinplot(vals_id_te, positions=pos_id, widths=0.25, showmeans=True)
-        vp_ood = ax.violinplot(vals_ood_te, positions=pos_ood, widths=0.25, showmeans=True)
+        vp_id = ax.violinplot(vals_id, positions=pos_id, widths=0.25, showmeans=True)
+        vp_ood = ax.violinplot(vals_ood, positions=pos_ood, widths=0.25, showmeans=True)
 
         # Minimal styling to distinguish the three
         for b in vp_train["bodies"]:
@@ -807,9 +956,9 @@ def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
 
         ax.legend(
             handles=[
-                Patch(facecolor="tab:blue", alpha=0.55, label="Train"),
-                Patch(facecolor="tab:orange",  alpha=0.55, label="ID test"),
-                Patch(facecolor="tab:green",alpha=0.55, label="OOD test"),
+                Patch(facecolor="tab:blue",   alpha=0.55, label="Train"),
+                Patch(facecolor="tab:orange", alpha=0.55, label="ID test"),
+                Patch(facecolor="tab:green",  alpha=0.55, label="OOD test"),
             ],
             frameon=False,
             loc="upper right",
