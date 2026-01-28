@@ -470,6 +470,43 @@ def feat_ood_trte_split(X, y, n_tr):
 
     return X_tr, X_te, y_tr, y_te
 
+def tr_idte_oodte_feat(X, y, tr_frac, id_frac):
+
+    n, _ = X.shape
+    n_ood = int(n * (1 - tr_frac - id_frac))
+    n_tr = int(n * tr_frac)
+    
+    # just split by first feature 
+
+    x_0 = X[:, 0]
+    sort_inds = torch.argsort(x_0)
+
+    X = X[sort_inds]
+    y = y[sort_inds]
+
+    X_ood = X[:n_ood]
+    y_ood = y[:n_ood]
+
+    _X = X[n_ood:]
+    _y = y[n_ood:]
+
+    perm = torch.randperm(n-n_ood, device=X.device)
+    _X = _X[perm]
+    _y = _y[perm]
+
+    X_tr = _X[:n_tr]
+    y_tr = _y[:n_tr]
+
+    X_id = _X[n_tr:]
+    y_id = _y[n_tr:]
+
+    return X_tr, y_tr, X_id, y_id, X_ood, y_ood
+
+
+
+
+
+
 def rand_trte_split(X, y, n_tr):
 
     X_tr = X[:n_tr]
