@@ -195,9 +195,16 @@ def divergences(X, y, Ts, n_max=1000):
         joint_wass2 = torch.diagonal(sig_true + sig_mfvi - 2 * A_sqrt, dim1=1, dim2=2).sum(dim=-1)
         out["joint_wass2"] = check_bad(joint_wass2).detach().cpu().numpy()
 
-        # squared diff of mean predictive variance
-        diff_post_var = true_var.mean(dim=0) - mfvi_var.mean(dim=0)
+        # marginal: squared difference of the mean predictive variance (scalar per T)
+        diff_post_var = true_var.mean(dim=0) - mfvi_var.mean(dim=0)   # (nT,)
         out["sq_diff_post_var"] = check_bad(diff_post_var**2).detach().cpu().numpy()
+
+        # joint: squared Frobenius norm of the predictive covariance difference (scalar per T)
+        # sig_true: (n_s, n_s)
+        # sig_mfvi: (nT, n_s, n_s)
+        diff_sig = sig_mfvi - sig_true[None, ...]                    # (nT, n_s, n_s)
+        sq_fro_diff_post_cov = (diff_sig * diff_sig).sum(dim=(-2, -1))  # (nT,)
+        out["sq_fro_diff_post_cov"] = check_bad(sq_fro_diff_post_cov).detach().cpu().numpy()
 
         # NLL (true tempered + mfvi)
         true_t_mean, true_t_var = post_pred_mean_var(

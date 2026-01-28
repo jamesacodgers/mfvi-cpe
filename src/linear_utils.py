@@ -664,191 +664,14 @@ def id_ood_violin_plots(results_id, results_ood, marg_or_joint=True, include_nll
     return figs
 
 
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from matplotlib.patches import Patch
-
-# def raw_id_ood_violin_plots(results_id, results_ood, marg_or_joint=True):
-#     """
-#     Adapted from the previous ID-vs-OOD gap plot.
-
-#     For each dataset, creates one figure.
-#     X-axis: divergences (marg/joint treated as separate divergences depending on marg_or_joint).
-#     For each divergence, shows THREE violins (per repetition/run) of the *optimal* temperature (argmin):
-#         1) train-optimal temperature      (minimizer of *_tr)
-#         2) ID test-optimal temperature    (minimizer of *_te from results_id)
-#         3) OOD test-optimal temperature   (minimizer of *_te from results_ood)
-
-#     Temperatures are plotted in log10-space: log10(T*).
-
-#     Parameters
-#     ----------
-#     results_id : dict
-#         Results dict from the script for in-distribution (ID) test setting.
-#     results_ood : dict
-#         Results dict from the script for out-of-distribution (OOD) test setting.
-#     marg_or_joint : bool
-#         If True: include only marginal divergences (where applicable).
-#         If False: include only joint divergences (where applicable).
-#         Note: metrics that have no joint version (e.g., var diff²) are included only in marginal mode.
-
-#     Returns
-#     -------
-#     figs : dict[str, matplotlib.figure.Figure]
-#         Mapping dataset -> figure
-#     """
-
-#     def _get_meta(res):
-#         datasets = res.get("meta", {}).get("datasets", list(res.get("data", {}).keys()))
-#         log10Ts = np.asarray(res["temps"]["log10Ts"])
-#         masks = {
-#             "kl":    np.asarray(res["temps"]["mask_kl"]),
-#             "alpha": np.asarray(res["temps"]["mask_alpha"]),
-#             "wass":  np.asarray(res["temps"]["mask_wass"]),
-#             "diff":  np.asarray(res["temps"]["mask_diff"]),
-#         }
-#         return datasets, log10Ts, masks
-
-#     ds_id, log10_id, masks_id = _get_meta(results_id)
-#     ds_ood, log10_ood, masks_ood = _get_meta(results_ood)
-
-#     # Intersection to be safe
-#     datasets = [d for d in ds_id if d in set(ds_ood)]
-
-#     # Candidate list: (display_name, base_key, mask_name, kind)
-#     all_divs = [
-#         ("fwd KL",    "fwd_kls",          "kl",    "marg"),
-#         ("fwd KL",    "fwd_joint_kl",     "kl",    "joint"),
-#         ("rev KL",    "rev_kls",          "kl",    "marg"),
-#         ("rev KL",    "rev_joint_kl",     "kl",    "joint"),
-#         ("alpha",     "alpha",            "alpha", "marg"),
-#         ("alpha",     "joint_alpha",      "alpha", "joint"),
-#         ("wass2",     "wass2",            "wass",  "marg"),
-#         ("wass2",     "joint_wass2",      "wass",  "joint"),
-#         ("var diff²", "sq_diff_post_var", "diff",  "marg"),  # no joint version in saved keys
-#     ]
-
-#     want_kind = "marg" if marg_or_joint else "joint"
-#     divs = [d for d in all_divs if d[3] == want_kind]
-
-#     def _argmin_log10T_per_rep(res, dataset, base_key, split_suffix, mask, log10Ts):
-#         """
-#         Returns log10(T*) per repetition, where T* minimizes the metric for the given split.
-#         split_suffix: "tr" or "te"
-#         """
-#         reps = res["data"][dataset]["reps"]
-#         k = f"{base_key}_{split_suffix}"
-#         if k not in reps:
-#             return None
-
-#         arr = np.asarray(reps[k])  # (n_reps, n_temps)
-#         arr_m = arr[:, mask]
-#         log10_m = log10Ts[mask]
-#         idx = np.argmin(arr_m, axis=1)
-#         return log10_m[idx]  # (n_reps,)
-
-#     figs = {}
-
-#     for ds in datasets:
-#         names = []
-#         vals_train = []
-#         vals_id_te = []
-#         vals_ood_te = []
-
-#         for disp, base_key, mask_name, _kind in divs:
-#             # Train: use *_tr from results_id (train runs are the same "type"; pick one consistently)
-#             tr_star = _argmin_log10T_per_rep(results_id, ds, base_key, "tr", masks_id[mask_name], log10_id)
-
-#             # ID test: *_te from results_id
-#             id_star = _argmin_log10T_per_rep(results_id, ds, base_key, "te", masks_id[mask_name], log10_id)
-
-#             # OOD test: *_te from results_ood
-#             ood_star = _argmin_log10T_per_rep(results_ood, ds, base_key, "te", masks_ood[mask_name], log10_ood)
-
-#             # Keep only if all three exist (so every divergence has 3 violins)
-#             if tr_star is None or id_star is None or ood_star is None:
-#                 continue
-
-#             names.append(disp)
-#             vals_train.append(tr_star)
-#             vals_id_te.append(id_star)
-#             vals_ood_te.append(ood_star)
-
-#         n = len(names)
-#         if n == 0:
-#             continue
-
-#         fig, ax = plt.subplots(figsize=(max(8, 1.2 * n), 3.8), constrained_layout=True)
-
-#         x = np.arange(1, n + 1, dtype=float)
-#         offset = 0.24
-#         pos_train = x - offset
-#         pos_id = x
-#         pos_ood = x + offset
-
-#         vp_train = ax.violinplot(vals_train, positions=pos_train, widths=0.25, showmeans=True)
-#         vp_id = ax.violinplot(vals_id_te, positions=pos_id, widths=0.25, showmeans=True)
-#         vp_ood = ax.violinplot(vals_ood_te, positions=pos_ood, widths=0.25, showmeans=True)
-
-#         # Minimal styling to distinguish the three
-#         for b in vp_train["bodies"]:
-#             b.set_facecolor("tab:blue"); b.set_alpha(0.55)
-#         for b in vp_id["bodies"]:
-#             b.set_facecolor("tab:orange"); b.set_alpha(0.55)
-#         for b in vp_ood["bodies"]:
-#             b.set_facecolor("tab:green"); b.set_alpha(0.55)
-
-#         ax.set_xticks(x)
-#         ax.set_xticklabels(names, rotation=30, ha="right")
-#         ax.set_ylabel(r"$\log_{10}(T^*)$")
-#         kind_title = "marginal" if marg_or_joint else "joint"
-#         ax.set_title(f"{ds}: optimal temperature distributions ({kind_title})")
-#         ax.grid(True, axis="y", alpha=0.3)
-
-#         ax.legend(
-#             handles=[
-#                 Patch(facecolor="tab:blue", alpha=0.55, label="Train"),
-#                 Patch(facecolor="tab:orange",  alpha=0.55, label="ID test"),
-#                 Patch(facecolor="tab:green",alpha=0.55, label="OOD test"),
-#             ],
-#             frameon=False,
-#             loc="upper right",
-#         )
-
-#         figs[ds] = fig
-
-#     return figs
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-def raw_id_ood_violin_plots(results, marg_or_joint=True):
-    """
-    For each dataset, creates one figure.
-    X-axis: divergences (marg/joint treated as separate divergences depending on marg_or_joint).
-    For each divergence, shows THREE violins (per repetition/run) of the *optimal* temperature (argmin):
-        1) train-optimal temperature      (minimizer of *_tr)
-        2) ID test-optimal temperature    (minimizer of *_id)
-        3) OOD test-optimal temperature   (minimizer of *_ood)
+def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint_bottom=False):
 
-    Temperatures are plotted in log10-space: log10(T*).
-
-    Parameters
-    ----------
-    results : dict
-        New results dict containing train/id/ood splits.
-    marg_or_joint : bool
-        If True: include only marginal divergences (where applicable).
-        If False: include only joint divergences (where applicable).
-        Note: metrics that have no joint version (e.g., var diff²) are included only in marginal mode.
-
-    Returns
-    -------
-    figs : dict[str, matplotlib.figure.Figure]
-        Mapping dataset -> figure
-    """
+    from tueplots.bundles import icml2024
+    plt.rcParams.update(icml2024(nrows=2 if two_rows_marg_top_joint_bottom else 1, ncols=1))
 
     def _get_meta(res):
         datasets = res.get("meta", {}).get("datasets", list(res.get("data", {}).keys()))
@@ -876,36 +699,24 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True):
         ("var diff²", "sq_diff_post_var", "diff",  "marg"),  # no joint version in saved keys
     ]
 
-    want_kind = "marg" if marg_or_joint else "joint"
-    divs = [d for d in all_divs if d[3] == want_kind]
-
     def _argmin_log10T_per_rep(res, dataset, base_key, split_suffix, mask, log10Ts):
-        """
-        Returns log10(T*) per repetition, where T* minimizes the metric for the given split.
-        split_suffix: "tr" or "id" or "ood"
-        """
         reps = res["data"][dataset]["reps"]
         k = f"{base_key}_{split_suffix}"
         if k not in reps:
             return None
 
-        arr = np.asarray(reps[k])  # (n_reps, n_temps)  [or (n_reps, n_temps, 1) if legacy shapes]
-        # be robust to accidental trailing singleton dim from older saves
+        arr = np.asarray(reps[k])
         if arr.ndim == 3 and arr.shape[-1] == 1:
             arr = arr[..., 0]
 
         arr_m = arr[:, mask]
         log10_m = log10Ts[mask]
         idx = np.argmin(arr_m, axis=1)
-        return log10_m[idx]  # (n_reps,)
+        return log10_m[idx]
 
-    figs = {}
-
-    for ds in datasets:
-        names = []
-        vals_train = []
-        vals_id = []
-        vals_ood = []
+    def _collect_for_kind(ds, kind):
+        names, vals_train, vals_id, vals_ood = [], [], [], []
+        divs = [d for d in all_divs if d[3] == kind]
 
         for disp, base_key, mask_name, _kind in divs:
             m = masks[mask_name]
@@ -914,7 +725,6 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True):
             id_star  = _argmin_log10T_per_rep(results, ds, base_key, "id",  m, log10Ts)
             ood_star = _argmin_log10T_per_rep(results, ds, base_key, "ood", m, log10Ts)
 
-            # Keep only if all three exist (so every divergence has 3 violins)
             if tr_star is None or id_star is None or ood_star is None:
                 continue
 
@@ -923,151 +733,123 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True):
             vals_id.append(id_star)
             vals_ood.append(ood_star)
 
+        return names, vals_train, vals_id, vals_ood
+
+    def _plot_on_ax(ax, fig, names, vals_train, vals_id, vals_ood, title, show_legend, show_x):
         n = len(names)
         if n == 0:
-            continue
-
-        fig, ax = plt.subplots(figsize=(max(8, 1.2 * n), 3.8), constrained_layout=True)
+            ax.set_axis_off()
+            return
 
         x = np.arange(1, n + 1, dtype=float)
-        offset = 0.24
-        pos_train = x - offset
-        pos_id = x
-        pos_ood = x + offset
+        off = 0.24
+        pos_train = x - off
+        pos_id    = x
+        pos_ood   = x + off
 
         vp_train = ax.violinplot(vals_train, positions=pos_train, widths=0.25, showmeans=True)
-        vp_id = ax.violinplot(vals_id, positions=pos_id, widths=0.25, showmeans=True)
-        vp_ood = ax.violinplot(vals_ood, positions=pos_ood, widths=0.25, showmeans=True)
+        vp_id    = ax.violinplot(vals_id,    positions=pos_id,    widths=0.25, showmeans=True)
+        vp_ood   = ax.violinplot(vals_ood,   positions=pos_ood,   widths=0.25, showmeans=True)
 
-        # Minimal styling to distinguish the three
         for b in vp_train["bodies"]:
-            b.set_facecolor("tab:blue"); b.set_alpha(0.55)
+            b.set_facecolor("tab:blue");   b.set_alpha(0.55)
         for b in vp_id["bodies"]:
             b.set_facecolor("tab:orange"); b.set_alpha(0.55)
         for b in vp_ood["bodies"]:
-            b.set_facecolor("tab:green"); b.set_alpha(0.55)
+            b.set_facecolor("tab:green");  b.set_alpha(0.55)
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(names, rotation=30, ha="right")
         ax.set_ylabel(r"$\log_{10}(T^*)$")
-        kind_title = "marginal" if marg_or_joint else "joint"
-        ax.set_title(f"{ds}: optimal temperature distributions ({kind_title})")
+        ax.set_title(title)
         ax.grid(True, axis="y", alpha=0.3)
 
-        ax.legend(
-            handles=[
+        if show_x:
+            ax.set_xticks(x)
+
+            x_labs = [r"${D}_{KL}(p \mid q_T)$",
+                      r"${D}_{KL}(q_T \mid p)$",
+                      r"${D}_\alpha(p \mid q_T)$",
+                      r"$W_2(p, q_T)$",
+                      r"$(\sigma_p^2 - \sigma_{q_T}^2)^2$"] if n == 5 else [
+                      r"${D}_{KL}(p \mid q_T)$",
+                      r"${D}_{KL}(q_T \mid p)$",
+                      r"${D}_\alpha(p \mid q_T)$",
+                      r"$W_2(p, q_T)$"]
+
+            ax.set_xticklabels(x_labs[:n], rotation=15, ha="right")
+
+            import matplotlib.transforms as mtransforms
+            dx = 20/72
+            txt_offset = mtransforms.ScaledTranslation(dx, 0, fig.dpi_scale_trans)
+            for lab in ax.get_xticklabels():
+                lab.set_transform(lab.get_transform() + txt_offset)
+        else:
+            # remove x ticks + labels entirely on the top row
+            ax.set_xticks([])
+            ax.set_xticklabels([])
+            ax.tick_params(axis="x", which="both", bottom=False, top=False, labelbottom=False)
+
+        if show_legend:
+            from matplotlib.patches import Patch
+            ax.legend(handles=[
                 Patch(facecolor="tab:blue",   alpha=0.55, label="Train"),
-                Patch(facecolor="tab:orange", alpha=0.55, label="ID test"),
-                Patch(facecolor="tab:green",  alpha=0.55, label="OOD test"),
+                Patch(facecolor="tab:orange", alpha=0.55, label="ID Test"),
+                Patch(facecolor="tab:green",  alpha=0.55, label="OOD Test"),
             ],
             frameon=False,
-            loc="upper right",
-        )
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.25),
+            ncol=3)
 
-        figs[ds] = fig
+    figs = {}
+
+    for ds in datasets:
+        if two_rows_marg_top_joint_bottom:
+            names_m, tr_m, id_m, ood_m = _collect_for_kind(ds, "marg")
+            names_j, tr_j, id_j, ood_j = _collect_for_kind(ds, "joint")
+
+            if len(names_m) == 0 and len(names_j) == 0:
+                continue
+
+            # no shared y-axis (like before)
+            fig, axes = plt.subplots(nrows=2, ncols=1, constrained_layout=True)
+
+            # Titles: only “Marginal divergences” / “Joint divergences”
+            _plot_on_ax(
+                axes[0], fig, names_m, tr_m, id_m, ood_m,
+                title="Marginal divergences",
+                show_legend=False,
+                show_x=False,   # remove x ticks/labels on first row
+            )
+            _plot_on_ax(
+                axes[1], fig, names_j, tr_j, id_j, ood_j,
+                title="Joint divergences",
+                show_legend=True,
+                show_x=True,
+            )
+
+            # optional: keep dataset name as figure-level title (comment out if you truly want ONLY row titles)
+            fig.suptitle(f"{ds}", y=1.02)
+
+            figs[ds] = fig
+
+        else:
+            want_kind = "marg" if marg_or_joint else "joint"
+            names, tr, idv, oodv = _collect_for_kind(ds, want_kind)
+            if len(names) == 0:
+                continue
+
+            fig, ax = plt.subplots(nrows=1, ncols=1, constrained_layout=True)
+            _plot_on_ax(
+                ax, fig, names, tr, idv, oodv,
+                title=f"Optimal Temperature by Divergence ({want_kind}; {ds})",
+                show_legend=True,
+                show_x=True,
+            )
+            figs[ds] = fig
 
     return figs
 
-import numpy as np
-import matplotlib.pyplot as plt
 
-def divergence_grid_plots(results, apply_icml_style=True):
-    """
-    Recreate the 3x3 grid divergence plots (KL fwd/rev, alpha, wass, diff, nll)
-    for both variants: te_split in {id, ood}.
-
-    Returns
-    -------
-    figs : dict[str, dict[str, matplotlib.figure.Figure]]
-        figs["_id" or "_ood"][metric_name] -> Figure
-        metric_name in {"kl_fwd","kl_rev","alpha","wass","diff","nll"}
-
-    Usage
-    -----
-    figs = divergence_grid_plots(results)
-    for tag, fs in figs.items():
-        for name, fig in fs.items():
-            fig.show()
-    """
-    # Optional style (kept inside, as requested)
-    if apply_icml_style:
-        try:
-            from tueplots.bundles import icml2024
-            plt.rcParams.update(icml2024(nrows=3, ncols=3))
-        except Exception:
-            pass
-        plt.rcParams.update({
-            "text.usetex": False,
-            "font.family": "STIXGeneral",
-            "mathtext.fontset": "stix",
-            "axes.unicode_minus": False,
-        })
-
-    datasets = results.get("meta", {}).get("datasets", list(results.get("data", {}).keys()))
-    temps = results["temps"]
-
-    log10Ts = np.asarray(temps["log10Ts"])
-
-    mask_kl    = np.asarray(temps.get("mask_kl",    np.ones_like(log10Ts, dtype=bool)))
-    mask_alpha = np.asarray(temps.get("mask_alpha", np.ones_like(log10Ts, dtype=bool)))
-    mask_wass  = np.asarray(temps.get("mask_wass",  np.ones_like(log10Ts, dtype=bool)))
-    mask_diff  = np.asarray(temps.get("mask_diff",  np.ones_like(log10Ts, dtype=bool)))
-    mask_nll   = np.asarray(temps.get("mask_nll",   np.ones_like(log10Ts, dtype=bool)))
-
-    x_kl    = np.asarray(temps.get("x_kl",    log10Ts[mask_kl]))
-    x_alpha = np.asarray(temps.get("x_alpha", log10Ts[mask_alpha]))
-    x_wass  = np.asarray(temps.get("x_wass",  log10Ts[mask_wass]))
-    x_diff  = np.asarray(temps.get("x_diff",  log10Ts[mask_diff]))
-    x_nll   = np.asarray(temps.get("x_nll",   log10Ts[mask_nll]))
-
-    # colors / std styling (same defaults as your script)
-    COL_TE = "tab:blue"
-    COL_TR = "tab:orange"
-    STD_LS = ":"
-    STD_ALPHA = 0.6
-
-    variants = [("id", "_id"), ("ood", "_ood")]
-
-    # Helper: squeeze legacy saved arrays (e.g., (T,1) instead of (T,))
-    def _vec(a):
-        a = np.asarray(a)
-        if a.ndim == 2 and a.shape[-1] == 1:
-            a = a[:, 0]
-        return a
-
-    def pick(d, base, split):
-        return _vec(d[f"{base}_{split}"])
-
-    # create figures/axes containers
-    figs = {}
-    axes = {}
-    ax_first = {}
-
-    for te_split, tag in variants:
-        fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-        fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-        fig_alpha,  axes_mid    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-        fig_wass,   axes_bot    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-        fig_diff,   axes_last   = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-        fig_nll,    axes_nll    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
-
-        figs[tag] = {
-            "kl_fwd": fig_kl_fwd,
-            "kl_rev": fig_kl_rev,
-            "alpha":  fig_alpha,
-            "wass":   fig_wass,
-            "diff":   fig_diff,
-            "nll":    fig_nll,
-        }
-        axes[tag] = {
-            "kl_fwd": axes_kl_fwd.ravel(),
-            "kl_rev": axes_kl_rev.ravel(),
-            "alpha":  axes_mid.ravel(),
-            "wass":   axes_bot.ravel(),
-            "diff":   axes_last.ravel(),
-            "nll":    axes_nll.ravel(),
-        }
-        ax_first[tag] = {"fwd": None, "rev": None, "alpha": None, "wass": None}
 
 import numpy as np
 import matplotlib.pyplot as plt
