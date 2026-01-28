@@ -967,3 +967,537 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True):
         figs[ds] = fig
 
     return figs
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def divergence_grid_plots(results, apply_icml_style=True):
+    """
+    Recreate the 3x3 grid divergence plots (KL fwd/rev, alpha, wass, diff, nll)
+    for both variants: te_split in {id, ood}.
+
+    Returns
+    -------
+    figs : dict[str, dict[str, matplotlib.figure.Figure]]
+        figs["_id" or "_ood"][metric_name] -> Figure
+        metric_name in {"kl_fwd","kl_rev","alpha","wass","diff","nll"}
+
+    Usage
+    -----
+    figs = divergence_grid_plots(results)
+    for tag, fs in figs.items():
+        for name, fig in fs.items():
+            fig.show()
+    """
+    # Optional style (kept inside, as requested)
+    if apply_icml_style:
+        try:
+            from tueplots.bundles import icml2024
+            plt.rcParams.update(icml2024(nrows=3, ncols=3))
+        except Exception:
+            pass
+        plt.rcParams.update({
+            "text.usetex": False,
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        })
+
+    datasets = results.get("meta", {}).get("datasets", list(results.get("data", {}).keys()))
+    temps = results["temps"]
+
+    log10Ts = np.asarray(temps["log10Ts"])
+
+    mask_kl    = np.asarray(temps.get("mask_kl",    np.ones_like(log10Ts, dtype=bool)))
+    mask_alpha = np.asarray(temps.get("mask_alpha", np.ones_like(log10Ts, dtype=bool)))
+    mask_wass  = np.asarray(temps.get("mask_wass",  np.ones_like(log10Ts, dtype=bool)))
+    mask_diff  = np.asarray(temps.get("mask_diff",  np.ones_like(log10Ts, dtype=bool)))
+    mask_nll   = np.asarray(temps.get("mask_nll",   np.ones_like(log10Ts, dtype=bool)))
+
+    x_kl    = np.asarray(temps.get("x_kl",    log10Ts[mask_kl]))
+    x_alpha = np.asarray(temps.get("x_alpha", log10Ts[mask_alpha]))
+    x_wass  = np.asarray(temps.get("x_wass",  log10Ts[mask_wass]))
+    x_diff  = np.asarray(temps.get("x_diff",  log10Ts[mask_diff]))
+    x_nll   = np.asarray(temps.get("x_nll",   log10Ts[mask_nll]))
+
+    # colors / std styling (same defaults as your script)
+    COL_TE = "tab:blue"
+    COL_TR = "tab:orange"
+    STD_LS = ":"
+    STD_ALPHA = 0.6
+
+    variants = [("id", "_id"), ("ood", "_ood")]
+
+    # Helper: squeeze legacy saved arrays (e.g., (T,1) instead of (T,))
+    def _vec(a):
+        a = np.asarray(a)
+        if a.ndim == 2 and a.shape[-1] == 1:
+            a = a[:, 0]
+        return a
+
+    def pick(d, base, split):
+        return _vec(d[f"{base}_{split}"])
+
+    # create figures/axes containers
+    figs = {}
+    axes = {}
+    ax_first = {}
+
+    for te_split, tag in variants:
+        fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_alpha,  axes_mid    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_wass,   axes_bot    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_diff,   axes_last   = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_nll,    axes_nll    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+
+        figs[tag] = {
+            "kl_fwd": fig_kl_fwd,
+            "kl_rev": fig_kl_rev,
+            "alpha":  fig_alpha,
+            "wass":   fig_wass,
+            "diff":   fig_diff,
+            "nll":    fig_nll,
+        }
+        axes[tag] = {
+            "kl_fwd": axes_kl_fwd.ravel(),
+            "kl_rev": axes_kl_rev.ravel(),
+            "alpha":  axes_mid.ravel(),
+            "wass":   axes_bot.ravel(),
+            "diff":   axes_last.ravel(),
+            "nll":    axes_nll.ravel(),
+        }
+        ax_first[tag] = {"fwd": None, "rev": None, "alpha": None, "wass": None}
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def divergence_grid_plots(results, apply_icml_style=True):
+    """
+    Recreate the 3x3 grid divergence plots (KL fwd/rev, alpha, wass, diff, nll)
+    for both variants: te_split in {id, ood}.
+
+    Changes vs previous version:
+      - Uncertainty band is IQR (Q1..Q3) from per-rep "reps" (not +-2std).
+      - Keep the mean line.
+      - For twinx plots, align y=0 at the same vertical level on both y-axes.
+
+    Returns
+    -------
+    figs : dict[str, dict[str, matplotlib.figure.Figure]]
+        figs["_id" or "_ood"][metric_name] -> Figure
+        metric_name in {"kl_fwd","kl_rev","alpha","wass","diff","nll"}
+    """
+    # Optional style (kept inside, as requested)
+    if apply_icml_style:
+        try:
+            from tueplots.bundles import icml2024
+            plt.rcParams.update(icml2024(nrows=3, ncols=3))
+        except Exception:
+            pass
+        plt.rcParams.update({
+            "text.usetex": False,
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        })
+
+    datasets = results.get("meta", {}).get("datasets", list(results.get("data", {}).keys()))
+    temps = results["temps"]
+
+    log10Ts = np.asarray(temps["log10Ts"])
+
+    mask_kl    = np.asarray(temps.get("mask_kl",    np.ones_like(log10Ts, dtype=bool)))
+    mask_alpha = np.asarray(temps.get("mask_alpha", np.ones_like(log10Ts, dtype=bool)))
+    mask_wass  = np.asarray(temps.get("mask_wass",  np.ones_like(log10Ts, dtype=bool)))
+    mask_diff  = np.asarray(temps.get("mask_diff",  np.ones_like(log10Ts, dtype=bool)))
+    mask_nll   = np.asarray(temps.get("mask_nll",   np.ones_like(log10Ts, dtype=bool)))
+
+    x_kl    = np.asarray(temps.get("x_kl",    log10Ts[mask_kl]))
+    x_alpha = np.asarray(temps.get("x_alpha", log10Ts[mask_alpha]))
+    x_wass  = np.asarray(temps.get("x_wass",  log10Ts[mask_wass]))
+    x_diff  = np.asarray(temps.get("x_diff",  log10Ts[mask_diff]))
+    x_nll   = np.asarray(temps.get("x_nll",   log10Ts[mask_nll]))
+
+    # colors / styling (same defaults as your script)
+    COL_TE = "tab:blue"
+    COL_TR = "tab:orange"
+    fill_alf = 0.15
+
+    variants = [("id", "_id"), ("ood", "_ood")]
+
+    # Helper: squeeze legacy saved arrays (e.g., (T,1) instead of (T,))
+    def _vec(a):
+        a = np.asarray(a)
+        if a.ndim == 2 and a.shape[-1] == 1:
+            a = a[:, 0]
+        return a
+
+    def pick(mean_dict, base, split):
+        return _vec(mean_dict[f"{base}_{split}"])
+
+    def _mean_and_iqr(data_block, base, split):
+        """
+        Returns (mean, q1, q3) arrays of shape (n_temps,)
+        mean from stored 'mean'; q1/q3 computed from stored 'reps'.
+        """
+        mean_dict = data_block["mean"]
+        reps_dict = data_block["reps"]
+
+        k = f"{base}_{split}"
+
+        mu = pick(mean_dict, base, split)
+
+        if k not in reps_dict:
+            # fall back: no band
+            return mu, None, None
+
+        arr = np.asarray(reps_dict[k])  # (n_reps, n_temps) or legacy (n_reps, n_temps, 1)
+        if arr.ndim == 3 and arr.shape[-1] == 1:
+            arr = arr[..., 0]
+        q1 = np.quantile(arr, 0.25, axis=0)
+        q3 = np.quantile(arr, 0.75, axis=0)
+        return _vec(mu), _vec(q1), _vec(q3)
+
+    def _align_zero(ax1, ax2):
+        """
+        Force 0 to appear at the same vertical position on ax1 and ax2.
+        Ensures 0 is within both y-limits, then expands ax2 limits to match ax1's zero position.
+        """
+        y1min, y1max = ax1.get_ylim()
+        y2min, y2max = ax2.get_ylim()
+
+        # ensure 0 is included on both
+        y1min = min(y1min, 0.0); y1max = max(y1max, 0.0)
+        y2min = min(y2min, 0.0); y2max = max(y2max, 0.0)
+
+        # guard degenerate
+        if np.isclose(y1max - y1min, 0.0):
+            y1max = y1min + 1.0
+        if np.isclose(y2max - y2min, 0.0):
+            y2max = y2min + 1.0
+
+        ax1.set_ylim(y1min, y1max)
+        ax2.set_ylim(y2min, y2max)
+
+        # fraction of axis height where 0 lies on ax1
+        p = (0.0 - y1min) / (y1max - y1min)
+
+        # avoid pathological p exactly 0 or 1
+        eps = 1e-9
+        p = float(np.clip(p, eps, 1.0 - eps))
+
+        # choose range R for ax2 so that its [y2min', y2max'] covers current [y2min, y2max]
+        # with 0 at the same fraction p
+        need_R1 = y2max / (1.0 - p)  # ensures y2max' >= y2max
+        need_R2 = (-y2min) / p       # ensures y2min' <= y2min
+        R = max(need_R1, need_R2, 1e-6)
+
+        y2min_new = -p * R
+        y2max_new = (1.0 - p) * R
+        ax2.set_ylim(y2min_new, y2max_new)
+
+    # create figures/axes containers
+    figs = {}
+    axes = {}
+    ax_first = {}
+
+    for te_split, tag in variants:
+        fig_kl_fwd, axes_kl_fwd = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_kl_rev, axes_kl_rev = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_alpha,  axes_mid    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_wass,   axes_bot    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_diff,   axes_last   = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+        fig_nll,    axes_nll    = plt.subplots(3, 3, figsize=(11, 11), constrained_layout=True)
+
+        figs[tag] = {
+            "kl_fwd": fig_kl_fwd,
+            "kl_rev": fig_kl_rev,
+            "alpha":  fig_alpha,
+            "wass":   fig_wass,
+            "diff":   fig_diff,
+            "nll":    fig_nll,
+        }
+        axes[tag] = {
+            "kl_fwd": axes_kl_fwd.ravel(),
+            "kl_rev": axes_kl_rev.ravel(),
+            "alpha":  axes_mid.ravel(),
+            "wass":   axes_bot.ravel(),
+            "diff":   axes_last.ravel(),
+            "nll":    axes_nll.ravel(),
+        }
+        ax_first[tag] = {"fwd": None, "rev": None, "alpha": None, "wass": None}
+
+    # plot each dataset into the grids
+    for dataset in datasets:
+        if dataset not in results["data"]:
+            continue
+
+        data_block = results["data"][dataset]
+        ds_idx = datasets.index(dataset)
+
+        for te_split, tag in variants:
+            axf, axr, axb, axc, axd, axn = (
+                axes[tag]["kl_fwd"][ds_idx],
+                axes[tag]["kl_rev"][ds_idx],
+                axes[tag]["alpha"][ds_idx],
+                axes[tag]["wass"][ds_idx],
+                axes[tag]["diff"][ds_idx],
+                axes[tag]["nll"][ds_idx],
+            )
+
+            # ---------- KL (forward) marginal ----------
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "fwd_kls", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "fwd_kls", "tr")
+
+            y_te_m = y_te[mask_kl]
+            y_tr_m = y_tr[mask_kl]
+            ln = axf.plot(x_kl, y_te_m, label="marg fwd KL te", linestyle="--", color=COL_TE)[0]
+            if q1_te is not None:
+                axf.fill_between(x_kl, q1_te[mask_kl], q3_te[mask_kl], color=COL_TE, alpha=fill_alf)
+            axf.axvline(x_kl[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axf.plot(x_kl, y_tr_m, label="marg fwd KL tr", linestyle="--", color=COL_TR)[0]
+            if q1_tr is not None:
+                axf.fill_between(x_kl, q1_tr[mask_kl], q3_tr[mask_kl], color=COL_TR, alpha=fill_alf)
+            axf.axvline(x_kl[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            # ---------- KL (forward) joint ----------
+            axf2 = axf.twinx()
+            if ax_first[tag]["fwd"] is None:
+                ax_first[tag]["fwd"] = axf2
+
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "fwd_joint_kl", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "fwd_joint_kl", "tr")
+
+            y_te_m = y_te[mask_kl]
+            y_tr_m = y_tr[mask_kl]
+            ln = axf2.plot(x_kl, y_te_m, label="joint fwd KL te", color=COL_TE)[0]
+            if q1_te is not None:
+                axf2.fill_between(x_kl, q1_te[mask_kl], q3_te[mask_kl], color=COL_TE, alpha=fill_alf)
+            axf2.axvline(x_kl[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axf2.plot(x_kl, y_tr_m, label="joint fwd KL tr", color=COL_TR)[0]
+            if q1_tr is not None:
+                axf2.fill_between(x_kl, q1_tr[mask_kl], q3_tr[mask_kl], color=COL_TR, alpha=fill_alf)
+            axf2.axvline(x_kl[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axf.set_title(dataset)
+            axf.set_xlabel(r"$\log_{10}(T)$")
+            axf.set_ylabel("Marginal KL")
+            axf.grid(True, alpha=0.3)
+            axf2.set_ylabel("Joint KL")
+            _align_zero(axf, axf2)
+
+            # ---------- KL (reverse) marginal ----------
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "rev_kls", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "rev_kls", "tr")
+
+            y_te_m = y_te[mask_kl]
+            y_tr_m = y_tr[mask_kl]
+            ln = axr.plot(x_kl, y_te_m, label="marg rev KL te", linestyle="--", color=COL_TE)[0]
+            if q1_te is not None:
+                axr.fill_between(x_kl, q1_te[mask_kl], q3_te[mask_kl], color=COL_TE, alpha=fill_alf)
+            axr.axvline(x_kl[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axr.plot(x_kl, y_tr_m, label="marg rev KL tr", linestyle="--", color=COL_TR)[0]
+            if q1_tr is not None:
+                axr.fill_between(x_kl, q1_tr[mask_kl], q3_tr[mask_kl], color=COL_TR, alpha=fill_alf)
+            axr.axvline(x_kl[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            # ---------- KL (reverse) joint ----------
+            axr2 = axr.twinx()
+            if ax_first[tag]["rev"] is None:
+                ax_first[tag]["rev"] = axr2
+
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "rev_joint_kl", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "rev_joint_kl", "tr")
+
+            y_te_m = y_te[mask_kl]
+            y_tr_m = y_tr[mask_kl]
+            ln = axr2.plot(x_kl, y_te_m, label="joint rev KL te", color=COL_TE)[0]
+            if q1_te is not None:
+                axr2.fill_between(x_kl, q1_te[mask_kl], q3_te[mask_kl], color=COL_TE, alpha=fill_alf)
+            axr2.axvline(x_kl[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axr2.plot(x_kl, y_tr_m, label="joint rev KL tr", color=COL_TR)[0]
+            if q1_tr is not None:
+                axr2.fill_between(x_kl, q1_tr[mask_kl], q3_tr[mask_kl], color=COL_TR, alpha=fill_alf)
+            axr2.axvline(x_kl[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axr.set_title(dataset)
+            axr.set_xlabel(r"$\log_{10}(T)$")
+            axr.set_ylabel("Marginal KL")
+            axr.grid(True, alpha=0.3)
+            axr2.set_ylabel("Joint KL")
+            _align_zero(axr, axr2)
+
+            # ---------- Alpha marginal ----------
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "alpha", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "alpha", "tr")
+
+            y_te_m = y_te[mask_alpha]
+            y_tr_m = y_tr[mask_alpha]
+            ln = axb.plot(x_alpha, y_te_m, label="marg alpha te", linestyle="--", color=COL_TE)[0]
+            if q1_te is not None:
+                axb.fill_between(x_alpha, q1_te[mask_alpha], q3_te[mask_alpha], color=COL_TE, alpha=fill_alf)
+            axb.axvline(x_alpha[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axb.plot(x_alpha, y_tr_m, label="marg alpha tr", linestyle="--", color=COL_TR)[0]
+            if q1_tr is not None:
+                axb.fill_between(x_alpha, q1_tr[mask_alpha], q3_tr[mask_alpha], color=COL_TR, alpha=fill_alf)
+            axb.axvline(x_alpha[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            # ---------- Alpha joint ----------
+            axb2 = axb.twinx()
+            if ax_first[tag]["alpha"] is None:
+                ax_first[tag]["alpha"] = axb2
+
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "joint_alpha", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "joint_alpha", "tr")
+
+            y_te_m = y_te[mask_alpha]
+            y_tr_m = y_tr[mask_alpha]
+            ln = axb2.plot(x_alpha, y_te_m, label="joint alpha te", color=COL_TE)[0]
+            if q1_te is not None:
+                axb2.fill_between(x_alpha, q1_te[mask_alpha], q3_te[mask_alpha], color=COL_TE, alpha=fill_alf)
+            axb2.axvline(x_alpha[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axb2.plot(x_alpha, y_tr_m, label="joint alpha tr", color=COL_TR)[0]
+            if q1_tr is not None:
+                axb2.fill_between(x_alpha, q1_tr[mask_alpha], q3_tr[mask_alpha], color=COL_TR, alpha=fill_alf)
+            axb2.axvline(x_alpha[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axb.set_title(dataset)
+            axb.set_xlabel(r"$\log_{10}(T)$")
+            axb.set_ylabel("Marginal alpha")
+            axb.grid(True, alpha=0.3)
+            axb2.set_ylabel("Joint alpha")
+            _align_zero(axb, axb2)
+
+            # ---------- Wasserstein marginal ----------
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "wass2", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "wass2", "tr")
+
+            y_te_m = y_te[mask_wass]
+            y_tr_m = y_tr[mask_wass]
+            ln = axc.plot(x_wass, y_te_m, label="marg wass2 te", linestyle="--", color=COL_TE)[0]
+            if q1_te is not None:
+                axc.fill_between(x_wass, q1_te[mask_wass], q3_te[mask_wass], color=COL_TE, alpha=fill_alf)
+            axc.axvline(x_wass[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axc.plot(x_wass, y_tr_m, label="marg wass2 tr", linestyle="--", color=COL_TR)[0]
+            if q1_tr is not None:
+                axc.fill_between(x_wass, q1_tr[mask_wass], q3_tr[mask_wass], color=COL_TR, alpha=fill_alf)
+            axc.axvline(x_wass[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            # ---------- Wasserstein joint ----------
+            axc2 = axc.twinx()
+            if ax_first[tag]["wass"] is None:
+                ax_first[tag]["wass"] = axc2
+
+            y_te, q1_te, q3_te = _mean_and_iqr(data_block, "joint_wass2", te_split)
+            y_tr, q1_tr, q3_tr = _mean_and_iqr(data_block, "joint_wass2", "tr")
+
+            y_te_m = y_te[mask_wass]
+            y_tr_m = y_tr[mask_wass]
+            ln = axc2.plot(x_wass, y_te_m, label="joint wass2 te", color=COL_TE)[0]
+            if q1_te is not None:
+                axc2.fill_between(x_wass, q1_te[mask_wass], q3_te[mask_wass], color=COL_TE, alpha=fill_alf)
+            axc2.axvline(x_wass[np.argmin(y_te_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            ln = axc2.plot(x_wass, y_tr_m, label="joint wass2 tr", color=COL_TR)[0]
+            if q1_tr is not None:
+                axc2.fill_between(x_wass, q1_tr[mask_wass], q3_tr[mask_wass], color=COL_TR, alpha=fill_alf)
+            axc2.axvline(x_wass[np.argmin(y_tr_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axc.set_title(dataset)
+            axc.set_xlabel(r"$\log_{10}(T)$")
+            axc.set_ylabel("Marginal wass2")
+            axc.grid(True, alpha=0.3)
+            axc2.set_ylabel("Joint wass2")
+            _align_zero(axc, axc2)
+
+            # ---------- Diff ----------
+            for split, lab, col in [(te_split, "diff² post var te", COL_TE),
+                                    ("tr", "diff² post var tr", COL_TR)]:
+                y0, q1, q3 = _mean_and_iqr(data_block, "sq_diff_post_var", split)
+                y0_m = y0[mask_diff]
+                ln = axd.plot(x_diff, y0_m, label=lab, linestyle="--", color=col)[0]
+                if q1 is not None:
+                    axd.fill_between(x_diff, q1[mask_diff], q3[mask_diff], color=col, alpha=fill_alf)
+                axd.axvline(x_diff[np.argmin(y0_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axd.set_title(dataset)
+            axd.set_xlabel(r"$\log_{10}(T)$")
+            axd.set_ylabel("Diff² mean post var")
+            axd.grid(True, alpha=0.3)
+
+            # ---------- NLL ----------
+            for split, col, tag2 in [(te_split, COL_TE, "te"), ("tr", COL_TR, "tr")]:
+                y0, q1, q3 = _mean_and_iqr(data_block, "true_t_npll", split)
+                y0_m = y0[mask_nll]
+                ln = axn.plot(x_nll, y0_m, label=f"true T-NLL {tag2}", linestyle="-", color=col)[0]
+                if q1 is not None:
+                    axn.fill_between(x_nll, q1[mask_nll], q3[mask_nll], color=col, alpha=fill_alf)
+                axn.axvline(x_nll[np.argmin(y0_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+                y0, q1, q3 = _mean_and_iqr(data_block, "mfvi_nplls", split)
+                y0_m = y0[mask_nll]
+                ln = axn.plot(x_nll, y0_m, label=f"mfvi T-NLL {tag2}", linestyle="--", color=col)[0]
+                if q1 is not None:
+                    axn.fill_between(x_nll, q1[mask_nll], q3[mask_nll], color=col, alpha=fill_alf)
+                axn.axvline(x_nll[np.argmin(y0_m)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axn.set_title(dataset)
+            axn.set_xlabel(r"$\log_{10}(T)$")
+            axn.set_ylabel("NLL")
+            axn.grid(True, alpha=0.3)
+
+    # ---------- legends + suptitles inside the function ----------
+    BASIS = results.get("meta", {}).get("BASIS", "unknown")
+
+    for te_split, tag in variants:
+        fig_kl_fwd = figs[tag]["kl_fwd"]
+        fig_kl_rev = figs[tag]["kl_rev"]
+        fig_alpha  = figs[tag]["alpha"]
+        fig_wass   = figs[tag]["wass"]
+        fig_diff   = figs[tag]["diff"]
+        fig_nll    = figs[tag]["nll"]
+
+        # KL fwd legends
+        h1, l1 = axes[tag]["kl_fwd"][0].get_legend_handles_labels()
+        h2, l2 = ax_first[tag]["fwd"].get_legend_handles_labels()
+        fig_kl_fwd.legend(h1 + h2, l1 + l2, loc="outside lower center", ncol=4, frameon=False)
+
+        # KL rev legends
+        h1r, l1r = axes[tag]["kl_rev"][0].get_legend_handles_labels()
+        h2r, l2r = ax_first[tag]["rev"].get_legend_handles_labels()
+        fig_kl_rev.legend(h1r + h2r, l1r + l2r, loc="outside lower center", ncol=4, frameon=False)
+
+        # Alpha legends
+        h3, l3 = axes[tag]["alpha"][0].get_legend_handles_labels()
+        h4, l4 = ax_first[tag]["alpha"].get_legend_handles_labels()
+        fig_alpha.legend(h3 + h4, l3 + l4, loc="outside lower center", ncol=4, frameon=False)
+
+        # Wass legends
+        h5, l5 = axes[tag]["wass"][0].get_legend_handles_labels()
+        h6, l6 = ax_first[tag]["wass"].get_legend_handles_labels()
+        fig_wass.legend(h5 + h6, l5 + l6, loc="outside lower center", ncol=4, frameon=False)
+
+        # Diff + NLL legends
+        h7, l7 = axes[tag]["diff"][0].get_legend_handles_labels()
+        fig_diff.legend(h7, l7, loc="outside lower center", ncol=4, frameon=False)
+
+        h8, l8 = axes[tag]["nll"][0].get_legend_handles_labels()
+        fig_nll.legend(h8, l8, loc="outside lower center", ncol=4, frameon=False)
+
+        te_name = "id" if te_split == "id" else "ood"
+        fig_kl_fwd.suptitle(f"basis: {BASIS} | fwd KL | te == {te_name}")
+        fig_kl_rev.suptitle(f"basis: {BASIS} | rev KL | te == {te_name}")
+        fig_alpha.suptitle(f"basis: {BASIS} | alpha | te == {te_name}")
+        fig_wass.suptitle(f"basis: {BASIS} | wass2 | te == {te_name}")
+        fig_diff.suptitle(f"basis: {BASIS} | var diff | te == {te_name}")
+        fig_nll.suptitle(f"basis: {BASIS} | NLL | te == {te_name}")
+
+    return figs
