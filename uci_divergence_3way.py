@@ -32,10 +32,10 @@ LEARN_NOISE_L_ALPHA = True
 
 TR_FRC = 0.6
 ID_FRC = 0.2
-N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
+N_MAX = 2000 # max tr + te points (subsampling, lower is faster ...)
 PCA = False # OOD split by pca or feature 
 
-N_REPS = 20
+N_REPS = 15
 
 T_RANGE_KL = (-1, .5)
 T_RANGE_ALPHA = (-2, 1)
@@ -43,10 +43,10 @@ T_RANGE_WASS = (-1, .5)
 T_RANGE_DIFF = (-1.5, .5)
 T_RANGE_NLL = (-3, 2) # extended range to check warm posteriors
 
-T_POINTS = 50
+T_POINTS = 100
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 4096 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -287,7 +287,6 @@ if __name__ == "__main__":
 
     variants = [("id", "_id"), ("ood", "_ood")]
  
-
     figs = {}
     axes = {}
     ax_first = {}
