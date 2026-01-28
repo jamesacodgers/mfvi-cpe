@@ -25,6 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 # set up #
+FOLDER = "results2"
 
 O_NOISE = .1; P_PRSCISN = 1 # overridden if LEARN_NOISE_L_ALPHA == True
 LEARN_NOISE_L_ALPHA = True
@@ -34,18 +35,18 @@ ID_FRC = 0.2
 N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
 PCA = False # OOD split by pca or feature 
 
-N_REPS = 2
+N_REPS = 20
 
 T_RANGE_KL = (-1, .5)
 T_RANGE_ALPHA = (-2, 1)
 T_RANGE_WASS = (-1, .5)
 T_RANGE_DIFF = (-1.5, .5)
-T_RANGE_NLL = (-2, 2) # extended range to check warm posteriors
+T_RANGE_NLL = (-3, 2) # extended range to check warm posteriors
 
-T_POINTS = 10
+T_POINTS = 50
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 499 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}
@@ -234,9 +235,11 @@ def divergences(X, y, Ts, n_max=1000):
 datasets = ["boston", "energy", "concrete", "yacht", "wine", "protein", "kin8nm", "power", "naval"]
 
 if __name__ == "__main__":
-
+    import time
     from tueplots.bundles import icml2024
     plt.rcParams.update(icml2024(nrows=3, ncols=3))
+
+    t0 = time.perf_counter()
 
     # for now until latex works on cluster
     plt.rcParams.update({
@@ -644,11 +647,11 @@ if __name__ == "__main__":
 
     # ---------- legends + saving ----------
     if BASIS == "rbf":
-        base = f"figs/uci/uci_divs_{BASIS}_p={p}_l={l}"
+        base = f"figs/uci/{FOLDER}/uci_divs_{BASIS}_p={p}_l={l}"
     elif BASIS == "polynomial":
-        base = f"figs/uci/uci_divs_{BASIS}_deg={deg}"
+        base = f"figs/uci/{FOLDER}/uci_divs_{BASIS}_deg={deg}"
     else:
-        base = f"figs/uci/uci_divs_{BASIS}"
+        base = f"figs/uci/{FOLDER}/uci_divs_{BASIS}"
 
     ood_pth = ""
 
@@ -657,7 +660,7 @@ if __name__ == "__main__":
     else:
         ood_pth = "_feat"
 
-    os.makedirs("figs/uci/", exist_ok=True)
+    os.makedirs(f"figs/uci/{FOLDER}/", exist_ok=True)
 
     for te_split, tag in variants:
 
@@ -725,6 +728,10 @@ if __name__ == "__main__":
     outpath_results = base + ood_pth + "_results.pt"
     torch.save(results, outpath_results)
     print(f"\nSaved results dict to {outpath_results}")
+
+    t1 = time.perf_counter()
+
+    print(f"This took {t1-t0:.2f} seconds.")
 
 
 
