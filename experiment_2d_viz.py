@@ -89,14 +89,17 @@ def run_2d_experiment():
     global_max = max(data_max, weight_max)
     
     # --- ICML Formatting Constants ---
-    PLT_SIZE = 4.5
-    LBL_FS = 18
-    TTL_FS = 20
-    TICK_FS = 14
-    LEG_FS = 14
+    WIDTH_1COL = 3.25
+    LBL_FS = 8
+    TTL_FS = 9
+    TICK_FS = 7
+    LEG_FS = 6
 
-    # Plotting Figure 1: Training Data Space
-    fig_data, ax_data = plt.subplots(figsize=(PLT_SIZE + 1.2, PLT_SIZE)) # Extra width for colorbar
+    # --- 1. Separate Figure: Input Space (Data viz) ---
+    # Width is roughly half ICML 1-column to fit side-by-side
+    fig_data, ax_data = plt.subplots(figsize=(WIDTH_1COL * 0.48, 1.4), 
+                                     constrained_layout=True)
+    fig_data.set_constrained_layout_pads(w_pad=0.0, h_pad=0.0, wspace=0.0, hspace=0.0)
     
     x_range_data = np.linspace(global_min, global_max, 250)
     y_range_data = np.linspace(global_min, global_max, 250)
@@ -112,71 +115,54 @@ def run_2d_experiment():
     var_ratio = (var_mfvi_data + NOISE_STD**2) / (var_ex_data + NOISE_STD**2)
     var_ratio_np = var_ratio.numpy()
     
-    delta_cov = (Sigma_ex - Sigma_mfvi_t1).numpy()
-    d11, d12, d22 = delta_cov[0, 0], delta_cov[0, 1], delta_cov[1, 1]
-    discriminant = (2 * d12)**2 - 4 * d22 * d11
-    slopes = []
-    if discriminant >= 0:
-        m1 = (-2 * d12 + np.sqrt(discriminant)) / (2 * d22)
-        m2 = (-2 * d12 - np.sqrt(discriminant)) / (2 * d22)
-        slopes = [m1, m2]
-    
     from matplotlib.colors import TwoSlopeNorm
     norm_ratio = TwoSlopeNorm(vmin=var_ratio_np.min(), vcenter=1.0, vmax=var_ratio_np.max())
     
     im = ax_data.pcolormesh(xx_data, yy_data, var_ratio_np, shading='auto', cmap='RdBu_r', norm=norm_ratio, alpha=0.3)
-    cbar = plt.colorbar(im, ax=ax_data)
-    cbar.ax.tick_params(labelsize=TICK_FS)
-    cbar.set_label('Variance Ratio', fontsize=LBL_FS)
     
-    # Analytic lines label
-    analytic_line_label = 'Var Ratio = 1.0'
-    x_line = np.array([global_min, global_max])
-    for i, m in enumerate(slopes):
-        ax_data.plot(x_line, m * x_line, color='green', lw=2, linestyle='--', 
-                     label=analytic_line_label if i == 0 else "")
+    # Training Data (Smaller Spots)
+    ax_data.scatter(X[:, 0].numpy(), X[:, 1].numpy(), color='blue', alpha=0.8, marker='o', s=10, label='Data')
+    ax_data.plot([global_min, global_max], [global_min, global_max], 'k--', alpha=0.5, linewidth=0.6)
     
-    ax_data.scatter(X[:, 0].numpy(), X[:, 1].numpy(), color='blue', alpha=0.8, edgecolors='white', s=50, label='Training Data')
-    ax_data.plot([global_min, global_max], [global_min, global_max], 'k--', alpha=0.5, label='$x_1 = x_2$')
-    
-    ax_data.set_xlabel('$x_1$', fontsize=LBL_FS)
-    ax_data.set_ylabel('$x_2$', fontsize=LBL_FS)
-    ax_data.tick_params(labelsize=TICK_FS)
-    ax_data.legend(fontsize=LEG_FS, loc='upper left')
+    ax_data.set_xlabel('$x_1$', fontsize=LBL_FS, labelpad=-1)
+    ax_data.set_ylabel('$x_2$', fontsize=LBL_FS, labelpad=-1)
+    ax_data.tick_params(labelsize=TICK_FS, pad=0, length=2)
     ax_data.grid(True, alpha=0.2)
     ax_data.set_xlim(global_min, global_max)
     ax_data.set_ylim(global_min, global_max)
     ax_data.set_aspect('equal')
-    
-    fig_data.tight_layout()
     fig_data.savefig("figs/2d_linear/2d_data_viz.pdf", bbox_inches='tight')
 
-    # Plotting Figure 2: Parameter Space
-    fig_param, ax_post = plt.subplots(figsize=(PLT_SIZE, PLT_SIZE))
+    # --- 2. Separate Figure: Parameter Space (Posterior viz) ---
+    fig_post, ax_post = plt.subplots(figsize=(WIDTH_1COL * 0.48, 1.6), 
+                                     constrained_layout=True)
+    fig_post.set_constrained_layout_pads(w_pad=0.0, h_pad=0.0, wspace=0.0, hspace=0.0)
     
     # Local limits for parameter space (focus on posterior uncertainty)
     w_std = np.sqrt(max(Sigma_ex[0,0], Sigma_ex[1,1], Sigma_mfvi_t1[0,0], Sigma_mfvi_t1[1,1]))
     w_min = min(mu_ex[0].item(), mu_ex[1].item()) - 3*w_std
     w_max = max(mu_ex[0].item(), mu_ex[1].item()) + 3*w_std
 
-    confidence_ellipse(mu_ex.numpy(), Sigma_ex.numpy(), ax_post, n_std=n_std_95, edgecolor='red', linewidth=3, label='Exact')
-    confidence_ellipse(mu_mfvi_t1.numpy(), Sigma_mfvi_t1.numpy(), ax_post, n_std=n_std_95, edgecolor='green', linestyle='--', linewidth=2, label='MFVI')
+    confidence_ellipse(mu_ex.numpy(), Sigma_ex.numpy(), ax_post, n_std=n_std_95, edgecolor='red', linewidth=1.2, label='Exact')
+    confidence_ellipse(mu_mfvi_t1.numpy(), Sigma_mfvi_t1.numpy(), ax_post, n_std=n_std_95, edgecolor='green', linestyle='--', linewidth=1.0, label='MFVI')
     
-    ax_post.plot([w_min, w_max], [w_min, w_max], 'k--', alpha=0.5, label='$\\theta_1 = \\theta_2$')
-    ax_post.set_xlabel('$\\theta_1$', fontsize=LBL_FS)
-    ax_post.set_ylabel('$\\theta_2$', fontsize=LBL_FS)
-    ax_post.tick_params(labelsize=TICK_FS)
-    ax_post.legend(fontsize=LEG_FS, loc='upper right')
+    ax_post.plot([w_min, w_max], [w_min, w_max], 'k--', alpha=0.5, linewidth=0.6)
+    ax_post.set_xlabel('$\\theta_1$', fontsize=LBL_FS, labelpad=-1)
+    ax_post.set_ylabel('$\\theta_2$', fontsize=LBL_FS, labelpad=-1)
+    ax_post.tick_params(labelsize=TICK_FS, pad=0, length=2)
+    # Legend moved below axis
+    ax_post.legend(fontsize=LEG_FS, loc='upper center', bbox_to_anchor=(0.5, -0.1), 
+                   ncol=2, frameon=False, handlelength=1.2, borderaxespad=0.1)
     ax_post.grid(True, alpha=0.3)
     ax_post.set_xlim(w_min, w_max)
     ax_post.set_ylim(w_min, w_max)
     ax_post.set_aspect('equal')
     
-    fig_param.tight_layout()
-    fig_param.savefig("figs/2d_linear/2d_parameter_viz.pdf", bbox_inches='tight')
+    fig_post.savefig("figs/2d_linear/2d_parameter_viz.pdf", bbox_inches='tight')
 
     # Plotting Figure 3: Precision Space Analysis (Curvature)
-    fig3, ax_prec = plt.subplots(figsize=(PLT_SIZE + 1, PLT_SIZE))
+    fig3, ax_prec = plt.subplots(figsize=(WIDTH_1COL, 1.7), constrained_layout=True)
+    fig3.set_constrained_layout_pads(w_pad=0.0, h_pad=0.0, wspace=0.01, hspace=0.0)
     
     def plot_prec_ellipse(cov, ax, **kwargs):
         P = np.linalg.inv(cov)
@@ -196,38 +182,41 @@ def run_2d_experiment():
         return max(width, height)
 
     max_ext = 0
-    ext_ex = plot_prec_ellipse(Sigma_ex.numpy(), ax_prec, color='red', linewidth=3, label='Exact Precision', zorder=5)
+    ext_ex = plot_prec_ellipse(Sigma_ex.numpy(), ax_prec, color='red', linewidth=1.0, label='Exact Prec.', zorder=5)
     max_ext = max(max_ext, ext_ex)
     
+    cmap = plt.get_cmap('viridis')
+    temperatures = [0.1, 0.5, 1.0, 5.0, 10.0]
+    norm = plt.Normalize(vmin=np.log10(min(temperatures)), vmax=np.log10(max(temperatures)))
+
     for temp in temperatures:
         _, sigma_vi = compute_mfvi_analytic(X, y, temperature=temp, noise_std=NOISE_STD)
         Sigma_vi = torch.diag(sigma_vi**2)
         color = cmap(norm(np.log10(temp)))
         ls = '--' if temp == 1.0 else '-'
-        lw = 2 if temp == 1.0 else 1.2
-        label = f'MFVI Precision T={temp}' if temp in [0.1, 1.0, 10.0] else ""
+        lw = 0.8 if temp == 1.0 else 0.5
+        label = f'T={temp}' if temp in [0.1, 1.0, 10.0] else ""
         ext_vi = plot_prec_ellipse(Sigma_vi.numpy(), ax_prec, color=color, linestyle=ls, linewidth=lw, label=label)
         if temp >= 1.0:
             max_ext = max(max_ext, ext_vi)
     
-    prec_lim = max_ext / 2 * 1.2 
+    prec_lim = max_ext / 2 * 1.1 
     x_prec_line = np.array([-prec_lim * 2, prec_lim * 2])
 
-    ax_prec.axhline(y=0, color='purple', linestyle=':', alpha=0.6)
-    ax_prec.axvline(x=0, color='purple', linestyle=':', alpha=0.6)
+    ax_prec.axhline(y=0, color='purple', linestyle=':', alpha=0.6, linewidth=0.5)
+    ax_prec.axvline(x=0, color='purple', linestyle=':', alpha=0.6, linewidth=0.5)
     
-    for m in slopes:
-        ax_prec.plot(x_prec_line, m * x_prec_line, color='green', lw=2, linestyle='--')
-    
-    ax_prec.set_xlabel('$\\delta\\theta_1$', fontsize=LBL_FS)
-    ax_prec.set_ylabel('$\\delta\\theta_2$', fontsize=LBL_FS)
-    ax_prec.tick_params(labelsize=TICK_FS)
+    ax_prec.set_xlabel('$\\delta\\theta_1$', fontsize=LBL_FS, labelpad=-1)
+    ax_prec.set_ylabel('$\\delta\\theta_2$', fontsize=LBL_FS, labelpad=-1)
+    ax_prec.tick_params(labelsize=TICK_FS, pad=0, length=2)
     ax_prec.grid(True, alpha=0.3)
     ax_prec.set_xlim(-prec_lim, prec_lim)
     ax_prec.set_ylim(-prec_lim, prec_lim)
     ax_prec.set_aspect('equal')
+    # Legend moved below axis
+    ax_prec.legend(fontsize=LEG_FS, loc='upper center', bbox_to_anchor=(0.5, -0.1), 
+                   ncol=3, frameon=False, borderaxespad=0.1)
     
-    fig3.tight_layout()
     fig3.savefig("figs/2d_linear/2d_precision_viz.pdf", bbox_inches='tight')
     # plt.show()
 
