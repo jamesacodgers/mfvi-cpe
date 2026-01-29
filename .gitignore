@@ -1,1 +1,8 @@
 uci_data/
+figs/uci/*
+uci_data/
+play.ipynb
+plots.py
+uci_divergence.py
+uci_npll_v_t.py
+uci_tr_inequ.py
