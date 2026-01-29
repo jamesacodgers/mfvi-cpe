@@ -25,14 +25,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 # set up #
-FOLDER = "results2"
+FOLDER = "results3"
 
 O_NOISE = .1; P_PRSCISN = 1 # overridden if LEARN_NOISE_L_ALPHA == True
 LEARN_NOISE_L_ALPHA = True
 
 TR_FRC = 0.6
 ID_FRC = 0.2
-N_MAX = 2000 # max tr + te points (subsampling, lower is faster ...)
+N_MAX = 1000 # max tr + te points (subsampling, lower is faster ...)
 PCA = False # OOD split by pca or feature 
 
 N_REPS = 15
@@ -46,7 +46,7 @@ T_RANGE_NLL = (-3, 2) # extended range to check warm posteriors
 T_POINTS = 100
 
 BASIS = "rbf" # | "identity" | "polynomial"
-BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 4096 }  # {} | {"degree": 5} 
+BASIS_KWARGS = {"centers": None, "lengthscale": 1, "m" : 500 }  # {} | {"degree": 5} 
 
 # BASIS = "identity"
 # BASIS_KWARGS = {}

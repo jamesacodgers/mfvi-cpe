@@ -668,9 +668,37 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint_bottom=False):
+def raw_id_ood_violin_plots(
+    results,
+    marg_or_joint=True,
+    two_rows_marg_top_joint_bottom=False,
+):
+    """
+    Violin plots of optimal temperatures T* (argmin over temperatures), per divergence.
 
+    Modes
+    -----
+    - two_rows_marg_top_joint_bottom=False:
+        * marg_or_joint=True  -> plot marginal divergences (incl. sq_diff_post_var)
+        * marg_or_joint=False -> plot joint divergences (incl. sq_fro_diff_post_cov)
+    - two_rows_marg_top_joint_bottom=True:
+        plot 2 rows per dataset:
+            top    = marginal divergences
+            bottom = joint divergences
+        Columns are aligned by keeping only divergences that exist for BOTH marg & joint.
+
+    Notes
+    -----
+    - For the joint "diff" we use the temperature that minimizes `sq_fro_diff_post_cov`.
+      (Argmin is identical to minimizing Frobenius norm vs squared Frobenius norm.)
+    """
+
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.transforms as mtransforms
+    from matplotlib.patches import Patch
     from tueplots.bundles import icml2024
+
     plt.rcParams.update(icml2024(nrows=2 if two_rows_marg_top_joint_bottom else 1, ncols=1))
 
     def _get_meta(res):
@@ -686,17 +714,19 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint
 
     datasets, log10Ts, masks = _get_meta(results)
 
-    # Candidate list: (display_name, base_key, mask_name, kind)
-    all_divs = [
-        ("fwd KL",    "fwd_kls",          "kl",    "marg"),
-        ("fwd KL",    "fwd_joint_kl",     "kl",    "joint"),
-        ("rev KL",    "rev_kls",          "kl",    "marg"),
-        ("rev KL",    "rev_joint_kl",     "kl",    "joint"),
-        ("alpha",     "alpha",            "alpha", "marg"),
-        ("alpha",     "joint_alpha",      "alpha", "joint"),
-        ("wass2",     "wass2",            "wass",  "marg"),
-        ("wass2",     "joint_wass2",      "wass",  "joint"),
-        ("var diff²", "sq_diff_post_var", "diff",  "marg"),  # no joint version in saved keys
+    # One canonical set of 5 "columns" with both marg & joint keys -> stacks nicely.
+    # Each entry: (mask_name, marg_key, joint_key, xlabel_marg, xlabel_joint)
+    col_specs = [
+        ("kl",    "fwd_kls",           "fwd_joint_kl",
+         r"${D}_{KL}(p \mid q_T)$",     r"${D}_{KL}(p \mid q_T)$"),
+        ("kl",    "rev_kls",           "rev_joint_kl",
+         r"${D}_{KL}(q_T \mid p)$",     r"${D}_{KL}(q_T \mid p)$"),
+        ("alpha", "alpha",             "joint_alpha",
+         r"${D}_\alpha(p \mid q_T)$",   r"${D}_\alpha(p \mid q_T)$"),
+        ("wass",  "wass2",             "joint_wass2",
+         r"$W_2(p, q_T)$",              r"$W_2(p, q_T)$"),
+        ("diff",  "sq_diff_post_var",  "sq_fro_diff_post_cov",
+         r"$(\sigma_p^2 - \sigma_{q_T}^2)^2$",  r"$\|\Sigma_p - \Sigma_{q_T}\|_F^2$"),
     ]
 
     def _argmin_log10T_per_rep(res, dataset, base_key, split_suffix, mask, log10Ts):
@@ -705,20 +735,33 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint
         if k not in reps:
             return None
 
-        arr = np.asarray(reps[k])
+        arr = np.asarray(reps[k])  # (n_reps, n_temps) [or legacy (n_reps, n_temps, 1)]
         if arr.ndim == 3 and arr.shape[-1] == 1:
             arr = arr[..., 0]
 
         arr_m = arr[:, mask]
         log10_m = log10Ts[mask]
         idx = np.argmin(arr_m, axis=1)
-        return log10_m[idx]
+        return log10_m[idx]  # (n_reps,)
 
-    def _collect_for_kind(ds, kind):
-        names, vals_train, vals_id, vals_ood = [], [], [], []
-        divs = [d for d in all_divs if d[3] == kind]
+    def _exists_all_splits(res, ds, base_key):
+        reps = res["data"][ds]["reps"]
+        return (
+            f"{base_key}_tr" in reps
+            and f"{base_key}_id" in reps
+            and f"{base_key}_ood" in reps
+        )
 
-        for disp, base_key, mask_name, _kind in divs:
+    def _collect(ds, kind, aligned_specs):
+        """
+        kind: "marg" or "joint"
+        returns: xlabels, vals_train, vals_id, vals_ood
+        """
+        xlabels = []
+        vals_train, vals_id, vals_ood = [], [], []
+
+        for mask_name, marg_key, joint_key, xl_m, xl_j in aligned_specs:
+            base_key = marg_key if kind == "marg" else joint_key
             m = masks[mask_name]
 
             tr_star  = _argmin_log10T_per_rep(results, ds, base_key, "tr",  m, log10Ts)
@@ -728,15 +771,15 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint
             if tr_star is None or id_star is None or ood_star is None:
                 continue
 
-            names.append(disp)
+            xlabels.append(xl_m if kind == "marg" else xl_j)
             vals_train.append(tr_star)
             vals_id.append(id_star)
             vals_ood.append(ood_star)
 
-        return names, vals_train, vals_id, vals_ood
+        return xlabels, vals_train, vals_id, vals_ood
 
-    def _plot_on_ax(ax, fig, names, vals_train, vals_id, vals_ood, title, show_legend, show_x):
-        n = len(names)
+    def _plot_one_row(ax, fig, xlabels, vals_train, vals_id, vals_ood, title, show_x, show_legend):
+        n = len(xlabels)
         if n == 0:
             ax.set_axis_off()
             return
@@ -764,90 +807,102 @@ def raw_id_ood_violin_plots(results, marg_or_joint=True, two_rows_marg_top_joint
 
         if show_x:
             ax.set_xticks(x)
+            ax.set_xticklabels(xlabels, rotation=15, ha="right")
 
-            x_labs = [r"${D}_{KL}(p \mid q_T)$",
-                      r"${D}_{KL}(q_T \mid p)$",
-                      r"${D}_\alpha(p \mid q_T)$",
-                      r"$W_2(p, q_T)$",
-                      r"$(\sigma_p^2 - \sigma_{q_T}^2)^2$"] if n == 5 else [
-                      r"${D}_{KL}(p \mid q_T)$",
-                      r"${D}_{KL}(q_T \mid p)$",
-                      r"${D}_\alpha(p \mid q_T)$",
-                      r"$W_2(p, q_T)$"]
-
-            ax.set_xticklabels(x_labs[:n], rotation=15, ha="right")
-
-            import matplotlib.transforms as mtransforms
-            dx = 20/72
+            dx = 20 / 72
             txt_offset = mtransforms.ScaledTranslation(dx, 0, fig.dpi_scale_trans)
             for lab in ax.get_xticklabels():
                 lab.set_transform(lab.get_transform() + txt_offset)
         else:
-            # remove x ticks + labels entirely on the top row
             ax.set_xticks([])
             ax.set_xticklabels([])
             ax.tick_params(axis="x", which="both", bottom=False, top=False, labelbottom=False)
 
         if show_legend:
-            from matplotlib.patches import Patch
-            ax.legend(handles=[
-                Patch(facecolor="tab:blue",   alpha=0.55, label="Train"),
-                Patch(facecolor="tab:orange", alpha=0.55, label="ID Test"),
-                Patch(facecolor="tab:green",  alpha=0.55, label="OOD Test"),
-            ],
-            frameon=False,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.25),
-            ncol=3)
+            ax.legend(
+                handles=[
+                    Patch(facecolor="tab:blue",   alpha=0.55, label="Train"),
+                    Patch(facecolor="tab:orange", alpha=0.55, label="ID Test"),
+                    Patch(facecolor="tab:green",  alpha=0.55, label="OOD Test"),
+                ],
+                frameon=False,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.25),
+                ncol=3,
+            )
 
     figs = {}
 
     for ds in datasets:
         if two_rows_marg_top_joint_bottom:
-            names_m, tr_m, id_m, ood_m = _collect_for_kind(ds, "marg")
-            names_j, tr_j, id_j, ood_j = _collect_for_kind(ds, "joint")
+            # Keep only columns that exist for BOTH marg and joint (so stacking aligns)
+            aligned_specs = []
+            for spec in col_specs:
+                _, marg_key, joint_key, _, _ = spec
+                if _exists_all_splits(results, ds, marg_key) and _exists_all_splits(results, ds, joint_key):
+                    aligned_specs.append(spec)
 
-            if len(names_m) == 0 and len(names_j) == 0:
+            if len(aligned_specs) == 0:
                 continue
 
-            # no shared y-axis (like before)
-            fig, axes = plt.subplots(nrows=2, ncols=1, constrained_layout=True)
+            xlab_m, tr_m, id_m, ood_m = _collect(ds, "marg", aligned_specs)
+            xlab_j, tr_j, id_j, ood_j = _collect(ds, "joint", aligned_specs)
 
-            # Titles: only “Marginal divergences” / “Joint divergences”
-            _plot_on_ax(
-                axes[0], fig, names_m, tr_m, id_m, ood_m,
+            # If something odd happens and collection drops items, align by intersection length
+            n = min(len(xlab_m), len(xlab_j))
+            if n == 0:
+                continue
+            xlab_m, tr_m, id_m, ood_m = xlab_m[:n], tr_m[:n], id_m[:n], ood_m[:n]
+            xlab_j, tr_j, id_j, ood_j = xlab_j[:n], tr_j[:n], id_j[:n], ood_j[:n]
+
+            fig, axes = plt.subplots(nrows=2, ncols=1, constrained_layout=True)  # no sharey
+
+            _plot_one_row(
+                axes[0], fig, xlab_m, tr_m, id_m, ood_m,
                 title="Marginal divergences",
+                show_x=False,          # remove x ticks/labels on top row
                 show_legend=False,
-                show_x=False,   # remove x ticks/labels on first row
             )
-            _plot_on_ax(
-                axes[1], fig, names_j, tr_j, id_j, ood_j,
+            _plot_one_row(
+                axes[1], fig, xlab_j, tr_j, id_j, ood_j,
                 title="Joint divergences",
-                show_legend=True,
                 show_x=True,
+                show_legend=True,
             )
-
-            # optional: keep dataset name as figure-level title (comment out if you truly want ONLY row titles)
-            fig.suptitle(f"{ds}", y=1.02)
 
             figs[ds] = fig
 
         else:
+            # single row: either marginal or joint
             want_kind = "marg" if marg_or_joint else "joint"
-            names, tr, idv, oodv = _collect_for_kind(ds, want_kind)
-            if len(names) == 0:
+
+            # Keep only columns that exist for that kind
+            specs = []
+            for spec in col_specs:
+                _, marg_key, joint_key, _, _ = spec
+                base_key = marg_key if want_kind == "marg" else joint_key
+                if _exists_all_splits(results, ds, base_key):
+                    specs.append(spec)
+
+            if len(specs) == 0:
+                continue
+
+            xlab, tr_v, id_v, ood_v = _collect(ds, want_kind, specs)
+            if len(xlab) == 0:
                 continue
 
             fig, ax = plt.subplots(nrows=1, ncols=1, constrained_layout=True)
-            _plot_on_ax(
-                ax, fig, names, tr, idv, oodv,
-                title=f"Optimal Temperature by Divergence ({want_kind}; {ds})",
-                show_legend=True,
+            _plot_one_row(
+                ax, fig, xlab, tr_v, id_v, ood_v,
+                title="Marginal divergences" if want_kind == "marg" else "Joint divergences",
                 show_x=True,
+                show_legend=True,
             )
+
             figs[ds] = fig
 
     return figs
+
 
 
 
