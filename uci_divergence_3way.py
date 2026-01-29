@@ -370,9 +370,11 @@ if __name__ == "__main__":
         "alpha", "joint_alpha",
         "wass2", "joint_wass2",
         "sq_diff_post_var",
+        "sq_fro_diff_post_cov",  
         "true_t_npll",
         "mfvi_nplls",
     ]
+
     splits = ["tr", "id", "ood"]
     keys = [f"{b}_{s}" for b in bases for s in splits]
 
@@ -624,11 +626,25 @@ if __name__ == "__main__":
                 axd.plot(x_diff, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
                 axd.plot(x_diff, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
                 axd.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
-
+            
             axd.set_title(dataset)
             axd.set_xlabel(r"$\log_{10}(T)$")
             axd.set_ylabel("Diff² mean post var")
             axd.grid(True, alpha=0.3)
+
+            axd2 = axd.twinx()
+            for split, lab, col in [(te_split, "Frob² cov diff te", COL_TE),
+                                    ("tr",      "Frob² cov diff tr", COL_TR)]:
+                y0 = pick(metrix, "sq_fro_diff_post_cov", split)[mask_diff]
+                s0 = pick(metrix2, "sq_fro_diff_post_cov", split)[mask_diff]
+                ln = axd2.plot(x_diff, y0, label=lab, linestyle="-", color=col)[0]
+                axd2.plot(x_diff, y0 + s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+                axd2.plot(x_diff, y0 - s0, linestyle=STD_LS, color=col, alpha=STD_ALPHA)
+                axd2.axvline(x_diff[np.argmin(y0)], color=ln.get_color(), linestyle=ln.get_linestyle(), alpha=0.4)
+
+            axd2.set_ylabel("Frobenius² cov diff")
+
+            
 
             # ---------- NLL ----------
             for split, col, tag2 in [(te_split, COL_TE, "te"), ("tr", COL_TR, "tr")]:
