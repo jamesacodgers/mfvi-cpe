@@ -84,9 +84,10 @@ def run_experiment(depth, width, args, x_train, y_train, x_test, y_test_clean, d
 
 def main():
     parser = argparse.ArgumentParser(description="BNN Linearization Experiment with IVON")
-    parser.add_argument("--epochs", type=int, default=20000)
+    parser.add_argument("--name", type=str, default="large")
+    parser.add_argument("--epochs", type=int, default=100000)
     parser.add_argument("--lr", type=float, default=0.00002)
-    parser.add_argument("--hess_init", type=float, default=1.0)
+    parser.add_argument("--hess_init", type=float, default=1)
     parser.add_argument("--noise_sigma", type=float, default=0.01)
     parser.add_argument("--prior_std", type=float, default=0.33)
     parser.add_argument("--train_samples", type=int, default=1)
@@ -109,7 +110,24 @@ def main():
     x_test = torch.linspace(-6, 6, N_TEST).reshape(-1, 1)
     y_test_clean = torch.sin(x_test.squeeze(-1)).reshape(-1, 1)
 
-    architectures = [(1, 16), (4, 32), (8, 64)]
+    # N=32
+    # N_TEST=100
+
+    # NOISE_SIGMA=0.1
+
+    # torch.manual_seed(42) 
+
+    # # x = torch.linspace(-3,3, N).reshape(-1,1)
+    # x_train = torch.randn(N).reshape(-1,1)*2
+    # y_train = torch.sinc(x_train.squeeze(-1)) + torch.randn(N)*NOISE_SIGMA
+    # x_train = x_train/3
+    # x_test = torch.linspace(-4.5,4.5,N_TEST).reshape(-1,1)
+    # y_test_clean = torch.sinc(x_test.squeeze(-1)) 
+    # x_test = x_test/3
+
+
+
+    architectures = [(3, 128)]
     results = []
     
     for depth, width in architectures:
@@ -132,7 +150,7 @@ def main():
         ls = line_styles[i % len(line_styles)]
         
         ax.plot(x_test.squeeze(), res["ivon_mean"].squeeze(), color=color, linestyle=ls,
-                label=f"Depth={depth}, Width={width} ({n_params}p)", linewidth=LW_LINE)
+                label=f"Depth={depth}, Width={width} ({n_params} parameters)", linewidth=LW_LINE)
         ax.fill_between(x_test.squeeze(), res["ivon_lower"].squeeze(), res["ivon_upper"].squeeze(), alpha=0.15, color=color)
 
     # Data points
@@ -147,7 +165,7 @@ def main():
               ncol=2, frameon=True, framealpha=0.8)
         
     plt.tight_layout()
-    fig.savefig("figs/ivon/bnn_ivon_arch_comparison.pdf", bbox_inches='tight')
+    fig.savefig(f"figs/ivon/{args.name}_bnn_ivon_arch_comparison.pdf", bbox_inches='tight')
     plt.show()
     print("Saved combined plot to bnn_ivon_arch_comparison.pdf")
 
