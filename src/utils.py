@@ -25,3 +25,10 @@ def set_seeds(seed):
     # Uncomment for additional for full reproducibility, but slower code
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
+
+def check_bad(x: torch.Tensor):
+
+    if torch.isnan(x).any() or torch.isinf(x).any():
+        raise ValueError("Tensor has inf or nan")
+    else:
+        return x
