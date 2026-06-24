@@ -65,7 +65,7 @@ def run_2d_experiment():
                                        seed=42, diagonal_input=True)
     
     # Compute Exact Posterior
-    mu_ex, Sigma_ex = compute_exact_posterior(X, y, noise_std=NOISE_STD)
+    mu_ex, Sigma_ex = compute_exact_posterior(X, y, noise_std=NOISE_STD, prior_precision=1.0)
     
     # Temperatures to explore
     temperatures = [0.1, 0.5, 1.0, 5.0, 10.0]

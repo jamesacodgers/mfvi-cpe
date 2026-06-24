@@ -84,9 +84,11 @@ def run_experiment(depth, width, args, x_train, y_train, x_test, y_test_clean, d
 
 def main():
     parser = argparse.ArgumentParser(description="BNN Linearization Experiment with IVON")
+    # parser.add_argument("--name", type=str, default="small")
     parser.add_argument("--name", type=str, default="large")
     parser.add_argument("--epochs", type=int, default=100000)
-    parser.add_argument("--lr", type=float, default=0.00002)
+    # parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1e-6)
     parser.add_argument("--hess_init", type=float, default=1)
     parser.add_argument("--noise_sigma", type=float, default=0.01)
     parser.add_argument("--prior_std", type=float, default=0.33)
@@ -127,7 +129,8 @@ def main():
 
 
 
-    architectures = [(3, 128)]
+    architectures = [(2, 16)]
+    architectures = [(2, 512)]
     results = []
     
     for depth, width in architectures:
@@ -137,7 +140,7 @@ def main():
     # 6. Plotting
     print("\nPlotting combined results...")
     # Reduced figure size for single-column ICML (approx 3.25in wide, we use slightly more for clarity)
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
     
     # Using Jet colormap for architectures
     colors = plt.cm.inferno(np.linspace(0.01, 0.9, len(results)))
@@ -158,11 +161,11 @@ def main():
     
     ax.set_xlabel("$x$", fontsize=LBL_FS)
     ax.set_ylabel("$y$", fontsize=LBL_FS)
-    ax.set_title("BNN predictions from IVON", fontsize=TTL_FS)
+    # ax.set_title("BNN predictions from IVON", fontsize=TTL_FS)
     ax.tick_params(labelsize=TICK_FS)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=LEG_FS, loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-              ncol=2, frameon=True, framealpha=0.8)
+    # ax.legend(fontsize=LEG_FS, loc='upper center', bbox_to_anchor=(0.5, -0.15), 
+            #   ncol=2, frameon=True, framealpha=0.8)
         
     plt.tight_layout()
     fig.savefig(f"figs/ivon/{args.name}_bnn_ivon_arch_comparison.pdf", bbox_inches='tight')

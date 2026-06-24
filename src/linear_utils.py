@@ -99,7 +99,23 @@ def generate_data(n_samples: int = 100, n_dims: int = 10, input_std: float = 1.0
     return X, y, true_weights
 
 
-def compute_analytic_nll_approximations(mu: torch.Tensor, sigma: torch.Tensor, 
+def generate_test_data(true_weights: torch.Tensor, n_samples: int = 100,
+                       input_std: float = 1.0, noise_std: float = 1.0,
+                       seed: int = 123, diagonal_input: bool = True):
+    """Generate test data consistent with training data structure."""
+    torch.manual_seed(seed)
+    n_dims = len(true_weights)
+    if diagonal_input:
+        x1 = torch.randn(n_samples) * input_std
+        X_test = x1.unsqueeze(1).repeat(1, n_dims)
+    else:
+        X_test = torch.randn(n_samples, n_dims) * input_std
+
+    y_test = X_test @ true_weights + torch.randn(n_samples) * noise_std
+    return X_test, y_test
+
+
+def compute_analytic_nll_approximations(mu: torch.Tensor, sigma: torch.Tensor,
                                       true_weights: torch.Tensor, Sigma_exact: torch.Tensor,
                                       input_std: float, noise_std: float):
     """
